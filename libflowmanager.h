@@ -75,7 +75,8 @@ class Flow {
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
 Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow);
-void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts);
+void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts, 
+		uint32_t payload_len);
 void update_flow_expiry_timeout(Flow *flow, double ts);
 Flow *expire_next_flow(double ts, bool force);
 

@@ -54,7 +54,8 @@ Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	return new_conn;
 }
 
-void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts) {
+void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
+		uint32_t payload_len) {
 	assert(tcp);
 	assert(flow);
 
@@ -74,6 +75,12 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts) {
 			/* How can we have just observed a fin, yet not
 			 * have seen a fin in at least one direction?! */
 			assert(0);
+		
+		/* FINs with no payload consume a sequence number - not sure
+		 * about FINs that do have payload attached */
+		if (payload_len == 0) {
+			flow->dir_info[dir].packet_list.expected_seq ++;
+		}
 	}
 
 	if (tcp->syn) {
