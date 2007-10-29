@@ -11,6 +11,10 @@ all: libflowmanager
 libflowmanager: $(SOURCES) $(HEADERS)
 	g++ $(CPPFLAGS) -fpic -shared $(LDFLAGS) $(LDLIBS) $(SOURCES) -o libflowmanager.so
 
+install:
+	cp *.so $(PREFIX)/lib
+	cp *.h $(PREFIX)/include
+
 clean:
 	rm -f *.o *.so
 
