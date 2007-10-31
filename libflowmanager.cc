@@ -12,6 +12,15 @@ FlowMap flow_map;
 
 static int next_conn_id = 0;
 
+/* Returns a pointer to the Flow that matches the packet provided. If no such
+ * Flow exists, a new Flow is created and added to the flow map before being
+ * returned.
+ *
+ * Flow matching is only done based on a standard 5-tuple (at least for now)
+ *
+ * The parameter 'is_new_flow' is set to true if a new Flow had to be created.
+ * It is set to false if the Flow already existed in the flow map.
+ */
 Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	uint16_t src_port, dst_port;
 	libtrace_ip_t *ip;
@@ -36,11 +45,13 @@ Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 
 	FlowMap::iterator i = flow_map.find(pkt_id);
 	if (i != flow_map.end()) {
+		/* Found the flow in the map! */
 		Flow *pkt_conn = *((*i).second);
 		*is_new_flow = false;
 		return pkt_conn;
 	}
 
+	/* Not in the map, create a new flow */
 	new_conn = new Flow(pkt_id);
 	if (ip->ip_p == 6)
 		new_conn->tcp_state = TCP_STATE_NEW;
@@ -54,6 +65,7 @@ Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	return new_conn;
 }
 
+/* Updates the flow state based primarily on the TCP flags */
 void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
 		uint32_t payload_len) {
 	assert(tcp);
@@ -93,6 +105,7 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
 		else
 			assert(0);
 		
+		/* Update our expected sequence number */
 		flow->dir_info[dir].packet_list.expected_seq = 
 			ntohl(tcp->seq) + 1;
 		if (flow->dir_info[dir].first_pkt_ts == 0.0) 
@@ -108,6 +121,12 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
 	
 }
 
+/* Updates the timeout for a Flow
+ *
+ * The flow state determines how long the flow has before it times out. The
+ * current values are somewhat arbitrary but are intended to be as long as
+ * realistically possible
+ */
 void update_flow_expiry_timeout(Flow *flow, double ts) {
 	ExpireList *exp_list;
 	switch(flow->tcp_state) {
@@ -133,6 +152,13 @@ void update_flow_expiry_timeout(Flow *flow, double ts) {
 	
 }
 
+/* Returns the next available expired flow. Returns NULL if there are no
+ * expired flows available.
+ *
+ * The 'force' parameter will force a flow to be expired, whether it is 
+ * due to expire or not. NULL will only be returned if the expire list is empty
+ * in this case. This can be used to flush the expiry list prior
+ * to the calling program exiting */
 static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
 	ExpireList::iterator i;
 	Flow *exp_flow;
@@ -150,6 +176,14 @@ static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
 			
 }
 
+/* This is essentially the API-exported version of get_next_expired()
+ *
+ * Since we maintain two separate expiry lists, both need to be checked for
+ * expirable flows before we can consider returning NULL. 
+ *
+ * As with get_next_expired(), the 'force' parameter will force a flow to be
+ * expired, irregardless of whether it is due to expire or not 
+ */
 Flow *expire_next_flow(double ts, bool force) {
 	Flow *exp_flow;
 	
@@ -160,6 +194,8 @@ Flow *expire_next_flow(double ts, bool force) {
 	return get_next_expired(&expire_unestab, ts, force);
 }
 
+
+/* Constructors and Destructors */
 Flow::Flow(const FlowId conn_id) {
 	id = conn_id;
 	expire_list = NULL;

@@ -6,6 +6,8 @@
 #include <inttypes.h>
 #include "tcp_reorder.h"
 
+/* We just use a standard 5-tuple as a flow key */
+/* XXX: Consider expanding this to support mac addresses as well */
 class FlowId {
         private:
         int cmp(const FlowId &b) const ;
@@ -34,7 +36,8 @@ class FlowId {
 
 };
 
-
+/* List of TCP connection states, including a NOT TCP state which should
+ * be used by all non-TCP transports */
 typedef enum {
 	TCP_STATE_NOTTCP,
 	TCP_STATE_NEW,
@@ -45,12 +48,13 @@ typedef enum {
 	TCP_STATE_CLOSE
 } tcp_state_t;
 
+/* Standard per-direction information, including the reordering list */
 class DirectionInfo {
 	public:
 		tcp_reorder_t packet_list;
 		double first_pkt_ts;
-		bool saw_fin;
-		bool saw_syn;
+		bool saw_fin; /* Have we seen a TCP FIN in this direction */
+		bool saw_syn; /* Have we seen a TCP SYN in this direction */
 
 		DirectionInfo();
 		~DirectionInfo();
@@ -62,12 +66,15 @@ class Flow {
 	public:
 		FlowId id;
 		DirectionInfo dir_info[2];
-		ExpireList *expire_list;
-		double expire_time;
+		ExpireList *expire_list; /* Which expiry list we are in */
+		double expire_time;	 /* When we are due to expire */
 		tcp_state_t tcp_state;
-		bool saw_rst;
+		bool saw_rst;	/* Have we seen a TCP RST for this flow */
 
-		void *extension;
+		/* Users of this library can use this pointer to store
+		 * per-flow data they require above and beyond what is
+		 * defined in this class definition */
+		void *extension; 
 		
 		Flow(const FlowId conn_id);
 };

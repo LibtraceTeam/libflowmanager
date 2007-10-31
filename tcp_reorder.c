@@ -27,6 +27,8 @@ static int seq_cmp (uint32_t seq_a, uint32_t seq_b) {
 
 }
 
+/* Increments the expected sequence number by the original payload size
+ * of the packet */
 static void update_expected_seqnum(tcp_reorder_t *list, 
 		libtrace_packet_t *packet) {
 	int payload_size;
@@ -41,6 +43,7 @@ static void update_expected_seqnum(tcp_reorder_t *list,
 }
 	
 
+/* Inserts a packet into a reordering list */
 static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head, 
 		libtrace_packet_t *packet, uint32_t seq) {
 	
@@ -61,10 +64,15 @@ static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head,
 		return head;
 	}
 
+	/* Recursion can be awesome */
 	head->next = insert_list(head->next, packet, seq);
 	return head;
 }
 
+/* Removes all packets from the reordering list, freeing all allocated
+ * memory as it goes. This function should be called whenever the flow
+ * that owns this list is expired / destroyed / ended, otherwise you will
+ * leak packets and reordering nodes */
 void purge_reorder_list(tcp_reorder_t *list) {
 	tcp_reorder_node_t *head = list->head;
 	tcp_reorder_node_t *tmp;
@@ -72,7 +80,6 @@ void purge_reorder_list(tcp_reorder_t *list) {
 		return;
 
 	while (head != NULL) {
-		//fprintf(stderr, "freeing packet %p\n", head->packet);
 		trace_destroy_packet(head->packet);
 		tmp = head;
 		head = head->next;
@@ -82,7 +89,7 @@ void purge_reorder_list(tcp_reorder_t *list) {
 	return;
 }
 
-	
+/* Pushes a packet onto the reordering list */	
 void push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) { 
 	
 	libtrace_tcp_t *tcp = trace_get_tcp(packet);
@@ -105,6 +112,18 @@ void push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
 	list->head = insert_list(list->head, packet, seq_num);
 }
 
+/* Pops the first packet off the reordering list, provided its sequence 
+ * number matches the sequence number we are expecting. This function
+ * will set 'packet' to point to the popped packet. If there are packets
+ * in the list but the first packet does have the correct sequence number,
+ * 'packet' will be set to NULL and the caller may need to create a new
+ * libtrace_packet_t before they next attempt to read a packet from their 
+ * trace.
+ *
+ * Returns 0 if no packet is available, and 1 if a packet has been popped.
+ * Note that in the case of a zero return value, you still need to check 
+ * whether 'packet' is NULL
+ */
 int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 	
 	tcp_reorder_node_t *head = list->head;
@@ -133,8 +152,6 @@ int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 	list->head = head->next;
 	free(head);
 
-	/* XXX Should really update expected_seq in here - but for now I'm going
-	 * to make the caller deal with it */
 	update_expected_seqnum(list, *packet);
 	return 1;
 }

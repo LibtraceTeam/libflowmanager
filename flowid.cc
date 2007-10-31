@@ -4,7 +4,10 @@
 
 #include "libflowmanager.h"
 
+/* Most of the code in here is just accessor functions and constructors for
+ * the FlowId class - shouldn't require too much explanation */
 
+/* Comparator function for a FlowId */
 int FlowId::cmp (const FlowId &b) const {
 	if (port_b != b.port_b)
 		return port_b - b.port_b;
