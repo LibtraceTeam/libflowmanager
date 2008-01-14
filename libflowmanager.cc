@@ -96,15 +96,17 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
 	}
 
 	if (tcp->syn) {
-		flow->dir_info[dir].saw_syn = true;
 
+		//if (flow->dir_info[dir].saw_syn)
+		//	return;
+		flow->dir_info[dir].saw_syn = true;
 		if (flow->dir_info[0].saw_syn && flow->dir_info[1].saw_syn)
 			flow->tcp_state = TCP_STATE_ESTAB;
 		else if (flow->dir_info[0].saw_syn || flow->dir_info[1].saw_syn)
 			flow->tcp_state = TCP_STATE_CONN;
 		else
 			assert(0);
-		
+	
 		/* Update our expected sequence number */
 		flow->dir_info[dir].packet_list.expected_seq = 
 			ntohl(tcp->seq) + 1;
@@ -200,6 +202,7 @@ Flow::Flow(const FlowId conn_id) {
 	id = conn_id;
 	expire_list = NULL;
 	expire_time = 0.0;
+	seen_data_pkt = false;
 	saw_rst = false;
 	tcp_state = TCP_STATE_NOTTCP;
 	extension = NULL;

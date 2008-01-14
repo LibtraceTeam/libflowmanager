@@ -131,14 +131,15 @@ int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 		return 0;
 	}
 
-	
-	if ( seq_cmp(head->seq_num, list->expected_seq) < 0 ) {
-		/* Asked for packet after the current available
-		 * packet! */
-		fprintf(stderr, "Asked for packet %u, but %u is the first available packet\n", list->expected_seq, head->seq_num);
-		abort();
+	while (seq_cmp(head->seq_num, list->expected_seq) < 0) {
+		trace_destroy_packet(head->packet);
+		list->head = head->next;
+		free(head);
+		head = list->head;
+		if (head == NULL)
+			return 0;
 	}
-	
+
 	if ( seq_cmp(head->seq_num, list->expected_seq) > 0 ) {
 		/* missing a packet */
 		*packet = NULL;
