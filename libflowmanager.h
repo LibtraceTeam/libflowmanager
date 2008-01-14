@@ -6,6 +6,10 @@
 #include <inttypes.h>
 #include "tcp_reorder.h"
 
+typedef enum {
+	LFM_CONFIG_IGNORE_RFC1918
+} lfm_config_t;
+
 /* We just use a standard 5-tuple as a flow key */
 /* XXX: Consider expanding this to support mac addresses as well */
 class FlowId {
@@ -30,7 +34,9 @@ class FlowId {
         uint32_t get_id_num() const ;
         char *get_server_ip_str() const ;
         char *get_client_ip_str() const ;
-        uint16_t get_server_port() const ;
+        uint32_t get_server_ip() const ;
+	uint32_t get_client_ip() const ;
+	uint16_t get_server_port() const ;
         uint16_t get_client_port() const ;
         uint8_t get_protocol() const ;
 
@@ -70,7 +76,7 @@ class Flow {
 		double expire_time;	 /* When we are due to expire */
 		tcp_state_t tcp_state;
 		bool saw_rst;	/* Have we seen a TCP RST for this flow */
-
+		
 		/* Users of this library can use this pointer to store
 		 * per-flow data they require above and beyond what is
 		 * defined in this class definition */
@@ -81,10 +87,13 @@ class Flow {
 
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
-Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow);
-void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts, 
-		uint32_t payload_len);
-void update_flow_expiry_timeout(Flow *flow, double ts);
-Flow *expire_next_flow(double ts, bool force);
+Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a, 
+		uint16_t port_b, uint8_t proto);
+Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow);
+void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
+		double ts, uint32_t payload_len);
+void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
+Flow *lfm_expire_next_flow(double ts, bool force);
+int lfm_set_config_option(lfm_config_t opt, void *value);
 
 #endif

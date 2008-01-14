@@ -76,6 +76,14 @@ char * FlowId::get_client_ip_str() const {
 	return inet_ntoa(inp);
 }
 
+uint32_t FlowId::get_server_ip() const {
+	return ip_a;
+}
+
+uint32_t FlowId::get_client_ip() const {
+	return ip_b;
+}
+
 uint16_t FlowId::get_server_port() const {
 	return port_a;
 }

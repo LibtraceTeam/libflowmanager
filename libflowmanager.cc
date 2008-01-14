@@ -6,12 +6,82 @@
 #include "libflowmanager.h"
 #include "tcp_reorder.h"
 
-ExpireList expire_unestab;
-ExpireList expire_estab;
-FlowMap flow_map;
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <arpa/inet.h>
+#include "libpacketdump.h"
+
+
+struct lfm_config_opts {
+	bool ignore_rfc1918;
+};
+
+ExpireList expire_tcp_syn;
+ExpireList expire_tcp_estab;
+ExpireList expire_udp;
+
+ExpireList expired_flows;
+
+FlowMap active_flows;
+struct lfm_config_opts config = {
+	0
+};
 
 static int next_conn_id = 0;
 
+int lfm_set_config_option(lfm_config_t opt, void *value) {
+	switch(opt) {
+		case LFM_CONFIG_IGNORE_RFC1918:
+			config.ignore_rfc1918 = *(bool *)value;
+			return 1;
+		
+	}
+	return 0;
+}
+
+static bool rfc1918_ip_addr(uint32_t ip_addr) {
+	if ((ip_addr & 0x000000FF) == 0x0000000A)
+		return true;
+	if ((ip_addr & 0x0000FFFF) == 0x0000A8C0)
+		return true;
+	return false;
+}
+
+static bool rfc1918_ip(libtrace_ip_t *ip) {
+	if (rfc1918_ip_addr(ip->ip_src.s_addr))
+		return true;
+	if (rfc1918_ip_addr(ip->ip_dst.s_addr))
+		return true;
+	return false;		
+}
+
+/* NOTE: ip_a and port_a must be from the same endpoint, likewise with ip_b
+ * and port_b. */
+Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a, 
+		uint16_t port_b, uint8_t proto) {
+	
+	FlowId flow_id;
+	/* If we're ignoring RFC1918 addresses, there's no point 
+	 * looking for a flow with an RFC1918 address */
+	if (config.ignore_rfc1918 && rfc1918_ip_addr(ip_a)) 
+		return NULL;
+	if (config.ignore_rfc1918 && rfc1918_ip_addr(ip_b)) 
+		return NULL;
+
+	if (trace_get_server_port(proto, port_a, port_b) == USE_SOURCE) {
+		flow_id = FlowId(ip_a, ip_b, port_a, port_b, proto, 0);
+	} else {
+		flow_id = FlowId(ip_b, ip_a, port_b, port_a, proto, 0);
+	}
+	FlowMap::iterator i = active_flows.find(flow_id);
+
+	if (i == active_flows.end()) {
+		return NULL;
+	}
+	else 
+		return *((*i).second);
+}
+	
 /* Returns a pointer to the Flow that matches the packet provided. If no such
  * Flow exists, a new Flow is created and added to the flow map before being
  * returned.
@@ -21,17 +91,36 @@ static int next_conn_id = 0;
  * The parameter 'is_new_flow' is set to true if a new Flow had to be created.
  * It is set to false if the Flow already existed in the flow map.
  */
-Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
+Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	uint16_t src_port, dst_port;
+	uint8_t dir;
 	libtrace_ip_t *ip;
         FlowId pkt_id;
         Flow *new_conn;
-
+	ExpireList *exp_list;
+	
         ip = trace_get_ip(packet);
-        src_port = trace_get_source_port(packet);
+	if (ip == NULL)
+		return NULL;
+	src_port = trace_get_source_port(packet);
         dst_port = trace_get_destination_port(packet);
+	
+	/* Ignore any RFC1918 addresses, if requested by the caller */
+	if (config.ignore_rfc1918 && rfc1918_ip(ip)) {
+		return NULL;
+	}
 
-        if (trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE) {
+	/* Force ICMP flows to have port numbers of zero, rather than
+	 * whatever random values trace_get_X_port might give us */
+	if (ip->ip_p == 1 && trace_get_direction(packet) == 0) {
+		pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
+				0, 0, ip->ip_p, next_conn_id);
+	} else if (ip->ip_p == 1) {
+		pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
+				0, 0, ip->ip_p, next_conn_id);
+	}
+	
+	else if (trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE) {
                 /* Server port = source port */
                 pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
                                         src_port, dst_port, ip->ip_p,
@@ -43,51 +132,82 @@ Flow *get_managed_flow(libtrace_packet_t *packet, bool *is_new_flow) {
                                         next_conn_id);
         }
 
-	FlowMap::iterator i = flow_map.find(pkt_id);
-	if (i != flow_map.end()) {
+	FlowMap::iterator i = active_flows.find(pkt_id);
+	if (i != active_flows.end()) {
 		/* Found the flow in the map! */
 		Flow *pkt_conn = *((*i).second);
 		*is_new_flow = false;
 		return pkt_conn;
 	}
 
-	/* Not in the map, create a new flow */
-	new_conn = new Flow(pkt_id);
-	if (ip->ip_p == 6)
+	if (ip->ip_p == 6) {
+		/* TCP Flows must begin with a SYN */
+		libtrace_tcp_t *tcp = trace_get_tcp(packet);
+		if (!tcp)
+			return NULL;
+			
+		if (!tcp->syn)
+			return NULL;
+		
+		/* Avoid creating a flow based on the SYN ACK */
+		if (tcp->ack)
+			return NULL;
+		
+		new_conn = new Flow(pkt_id);
 		new_conn->tcp_state = TCP_STATE_NEW;
-	else
+		exp_list = &expire_tcp_syn;
+	} else if (ip->ip_p == 1) {
+		/* We probably don't want to treat ICMP errors as flows */
+		libtrace_icmp_t *icmp_hdr;
+		icmp_hdr = (libtrace_icmp_t *)trace_get_payload_from_ip(ip,
+			 	NULL, NULL);
+		
+		if (!icmp_hdr)
+			return NULL;
+		switch(icmp_hdr->type) {
+			case 3:
+			case 4:
+			case 11:
+			case 12:
+			case 31:
+				return NULL;		
+		}
+		new_conn = new Flow(pkt_id);
 		new_conn->tcp_state = TCP_STATE_NOTTCP;
-	new_conn->expire_list = &expire_unestab;
-	expire_unestab.push_front(new_conn);
-	flow_map[new_conn->id] = expire_unestab.begin();
+		exp_list = &expire_udp;
+	} else {
+		/* Treat all non-TCP protocols as UDP for now */
+		
+		/* We don't have handy things like SYN flags to 
+		 * mark the beginning of UDP connections */
+		new_conn = new Flow(pkt_id);
+		new_conn->tcp_state = TCP_STATE_NOTTCP;
+		exp_list = &expire_udp;
+		
+	}
+	
+	dir = trace_get_direction(packet);
+	if (new_conn->dir_info[dir].first_pkt_ts == 0.0) 
+		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
+	new_conn->expire_list = exp_list;
+	exp_list->push_front(new_conn);
+	active_flows[new_conn->id] = exp_list->begin();
 	next_conn_id ++;
 	*is_new_flow = true;
 	return new_conn;
 }
 
 /* Updates the flow state based primarily on the TCP flags */
-void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
-		uint32_t payload_len) {
+void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
+		double ts, uint32_t payload_len) {
 	assert(tcp);
 	assert(flow);
 
 	if (tcp->fin) {
 		flow->dir_info[dir].saw_fin = true;
-		/* A fin in each direction means we should be in a CLOSE
-		 * state */
-		if (flow->dir_info[0].saw_fin && flow->dir_info[1].saw_fin)
+		/* FINACK marks the conclusion of a flow */
+		if (tcp->ack)
 			flow->tcp_state = TCP_STATE_CLOSE;
-		/* One fin should put us into half-close, although half-close
-		 * is relatively meaningless for this library */
-		else if (flow->dir_info[0].saw_fin || flow->dir_info[1].saw_fin)
-		{
-			if (flow->tcp_state != TCP_STATE_RESET)
-				flow->tcp_state = TCP_STATE_HALFCLOSE;
-		} else
-			/* How can we have just observed a fin, yet not
-			 * have seen a fin in at least one direction?! */
-			assert(0);
-		
 		/* FINs with no payload consume a sequence number - not sure
 		 * about FINs that do have payload attached */
 		if (payload_len == 0) {
@@ -97,8 +217,6 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
 
 	if (tcp->syn) {
 
-		//if (flow->dir_info[dir].saw_syn)
-		//	return;
 		flow->dir_info[dir].saw_syn = true;
 		if (flow->dir_info[0].saw_syn && flow->dir_info[1].saw_syn)
 			flow->tcp_state = TCP_STATE_ESTAB;
@@ -129,28 +247,39 @@ void check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, double ts,
  * current values are somewhat arbitrary but are intended to be as long as
  * realistically possible
  */
-void update_flow_expiry_timeout(Flow *flow, double ts) {
+void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 	ExpireList *exp_list;
 	switch(flow->tcp_state) {
 		case TCP_STATE_RESET:
+		case TCP_STATE_CLOSE:
+			/* We want to expire this as soon as possible */
+			flow->expire_time = ts;
+			exp_list = &expired_flows;
+			break;
+		
 		case TCP_STATE_NEW:
 		case TCP_STATE_CONN:
-		case TCP_STATE_CLOSE:
-			flow->expire_time = ts + 300.0;
-			exp_list = &expire_unestab;
+			flow->expire_time = ts + 240.0;
+			exp_list = &expire_tcp_syn;
 			break;
+			
 		case TCP_STATE_HALFCLOSE:
 		case TCP_STATE_ESTAB:
+			flow->expire_time = ts + 7440.0;
+			exp_list = &expire_tcp_estab;
+			break;
+			
 		case TCP_STATE_NOTTCP:
-			flow->expire_time = ts + 600.0;
-			exp_list = &expire_estab;
+			flow->expire_time = ts + 120.0;
+			exp_list = &expire_udp;
 			break;
 			
 	}
-	flow->expire_list->erase(flow_map[flow->id]);
+	
+	flow->expire_list->erase(active_flows[flow->id]);
 	flow->expire_list = exp_list;
 	exp_list->push_front(flow);
-	flow_map[flow->id] = exp_list->begin();
+	active_flows[flow->id] = exp_list->begin();
 	
 }
 
@@ -171,7 +300,7 @@ static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
 	exp_flow = expire->back();
 	if (force || exp_flow->expire_time <= ts) {
 		expire->pop_back();
-		flow_map.erase(exp_flow->id);
+		active_flows.erase(exp_flow->id);
 		return exp_flow;
 	}
 	return NULL;
@@ -186,14 +315,22 @@ static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
  * As with get_next_expired(), the 'force' parameter will force a flow to be
  * expired, irregardless of whether it is due to expire or not 
  */
-Flow *expire_next_flow(double ts, bool force) {
+Flow *lfm_expire_next_flow(double ts, bool force) {
 	Flow *exp_flow;
 	
-	exp_flow = get_next_expired(&expire_estab, ts, force);
+	exp_flow = get_next_expired(&expire_tcp_syn, ts, force);
+	if (exp_flow != NULL)
+		return exp_flow;
+	
+	exp_flow = get_next_expired(&expire_tcp_estab, ts, force);
+	if (exp_flow != NULL)
+		return exp_flow;
+	
+	exp_flow = get_next_expired(&expire_udp, ts, force);
 	if (exp_flow != NULL)
 		return exp_flow;
 
-	return get_next_expired(&expire_unestab, ts, force);
+	return get_next_expired(&expired_flows, ts, force);
 }
 
 
@@ -202,7 +339,6 @@ Flow::Flow(const FlowId conn_id) {
 	id = conn_id;
 	expire_list = NULL;
 	expire_time = 0.0;
-	seen_data_pkt = false;
 	saw_rst = false;
 	tcp_state = TCP_STATE_NOTTCP;
 	extension = NULL;
