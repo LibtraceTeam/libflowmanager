@@ -166,7 +166,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	if (ip == NULL)
 		return NULL;
 	/* Deal with IPv4 only */
-	if (l3_type != 0x8000) return NULL;
+	if (l3_type != 0x0800) return NULL;
 	src_port = trace_get_source_port(packet);
         dst_port = trace_get_destination_port(packet);
 	

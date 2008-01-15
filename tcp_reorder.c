@@ -89,14 +89,19 @@ void purge_reorder_list(tcp_reorder_t *list) {
 	return;
 }
 
-/* Pushes a packet onto the reordering list */	
-void push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) { 
+/* Pushes a packet onto the reordering list 
+ *
+ * Returns -1 if passed a non-tcp packet
+ * Returns  0 if the packet is or was already in the list 
+ * Returns  1 if the packet is pushed on successfully 
+ */	
+int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) { 
 	
 	libtrace_tcp_t *tcp = trace_get_tcp(packet);
 	uint32_t seq_num;
 	if (tcp == NULL) {
 		fprintf(stderr, "Warning: push_tcp_packet passed a non-TCP packet!\n");
-		return;
+		return -1;
 	}
 
 	seq_num = ntohl(tcp->seq);
@@ -106,10 +111,11 @@ void push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
 
 		/* XXX Should check that this doesn't overlap with the
 		 * expected sequence number */
-		return ;
+		return 0;
 	}
 	
 	list->head = insert_list(list->head, packet, seq_num);
+	return 1;
 }
 
 /* Pops the first packet off the reordering list, provided its sequence 
