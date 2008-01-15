@@ -81,7 +81,68 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
 	else 
 		return *((*i).second);
 }
-	
+
+static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
+        libtrace_ip_t *orig_ip;
+        uint16_t src_port, dst_port;
+        uint32_t src_ip, dst_ip;
+        uint8_t proto;
+        Flow *orig_flow;
+        void *post_ip;
+        /* Determine the flow that caused this icmp message to be sent */
+
+        orig_ip = (libtrace_ip_t *)trace_get_payload_from_icmp(icmp_hdr, &rem);
+        if (orig_ip == NULL) {
+                return NULL;
+        }
+
+        src_ip = orig_ip->ip_src.s_addr;
+        dst_ip = orig_ip->ip_dst.s_addr;
+        proto = orig_ip->ip_p;
+        rem -= (orig_ip->ip_hl * 4);
+        post_ip = (char *)orig_ip + (orig_ip->ip_hl * 4);
+
+        if (proto == 6) {
+                if ( rem < 8 )
+                        return NULL;
+                libtrace_tcp_t *orig_tcp = (libtrace_tcp_t *)post_ip;
+                src_port = orig_tcp->source;
+                dst_port = orig_tcp->dest;
+        } else if (proto == 17) {
+                if ( rem < 8 )
+                        return NULL;
+                libtrace_udp_t *orig_udp = (libtrace_udp_t *)post_ip;
+                src_port = orig_udp->source;
+                dst_port = orig_udp->dest;
+        } else {
+                /* Unknown protocol */
+                src_port = 0;
+                dst_port = 0;
+        }
+
+        orig_flow = lfm_find_managed_flow(src_ip, dst_ip, src_port, dst_port,
+                        proto);
+
+        /* Couldn't find the original flow! */
+        if (orig_flow == NULL) {
+                return NULL;
+        }
+
+        return orig_flow;
+}
+
+
+static void icmp_error(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
+	Flow *orig_flow;
+
+	orig_flow = icmp_find_original_flow(icmp_hdr, rem);
+	if (orig_flow == NULL)
+		return;
+	/* Expire the original flow immediately */
+	orig_flow->saw_rst = true; /* Not technically true :] */
+	orig_flow->tcp_state = TCP_STATE_RESET;
+}
+
 /* Returns a pointer to the Flow that matches the packet provided. If no such
  * Flow exists, a new Flow is created and added to the flow map before being
  * returned.
@@ -98,10 +159,14 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
         FlowId pkt_id;
         Flow *new_conn;
 	ExpireList *exp_list;
+	uint16_t l3_type;
+	uint32_t pkt_left = 0;
 	
-        ip = trace_get_ip(packet);
+        ip = (libtrace_ip_t *)trace_get_layer3(packet, &l3_type, &pkt_left);
 	if (ip == NULL)
 		return NULL;
+	/* Deal with IPv4 only */
+	if (l3_type != 0x8000) return NULL;
 	src_port = trace_get_source_port(packet);
         dst_port = trace_get_destination_port(packet);
 	
@@ -160,16 +225,19 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 		/* We probably don't want to treat ICMP errors as flows */
 		libtrace_icmp_t *icmp_hdr;
 		icmp_hdr = (libtrace_icmp_t *)trace_get_payload_from_ip(ip,
-			 	NULL, NULL);
+			 	NULL, &pkt_left);
 		
 		if (!icmp_hdr)
 			return NULL;
 		switch(icmp_hdr->type) {
+			case 11:
+				return icmp_find_original_flow(icmp_hdr, 
+						pkt_left);
 			case 3:
 			case 4:
-			case 11:
 			case 12:
 			case 31:
+				icmp_error(icmp_hdr, pkt_left);
 				return NULL;		
 		}
 		new_conn = new Flow(pkt_id);
