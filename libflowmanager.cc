@@ -40,10 +40,15 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 }
 
 static bool rfc1918_ip_addr(uint32_t ip_addr) {
+        // 10/8
 	if ((ip_addr & 0x000000FF) == 0x0000000A)
 		return true;
+        // 192.168/16
 	if ((ip_addr & 0x0000FFFF) == 0x0000A8C0)
 		return true;
+        // 172.16/12
+        if ((ip_addr & 0x0000FFFF) == 0x000010AC)
+                return true;
 	return false;
 }
 
