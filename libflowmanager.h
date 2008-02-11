@@ -7,7 +7,9 @@
 #include "tcp_reorder.h"
 
 typedef enum {
-	LFM_CONFIG_IGNORE_RFC1918
+	LFM_CONFIG_IGNORE_RFC1918,
+	LFM_CONFIG_TCP_TIMEWAIT
+		
 } lfm_config_t;
 
 /* We just use a standard 5-tuple as a flow key */
@@ -91,7 +93,7 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
 		uint16_t port_b, uint8_t proto);
 Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow);
 void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
-		double ts, uint32_t payload_len);
+		double ts);
 void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
 Flow *lfm_expire_next_flow(double ts, bool force);
 int lfm_set_config_option(lfm_config_t opt, void *value);

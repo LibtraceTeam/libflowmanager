@@ -14,6 +14,7 @@
 
 struct lfm_config_opts {
 	bool ignore_rfc1918;
+	bool tcp_timewait;
 };
 
 ExpireList expire_tcp_syn;
@@ -24,7 +25,8 @@ ExpireList expired_flows;
 
 FlowMap active_flows;
 struct lfm_config_opts config = {
-	0
+	false,		/* ignore RFC1918 */
+	false,		/* TCP timewait */
 };
 
 static int next_conn_id = 0;
@@ -34,7 +36,10 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 		case LFM_CONFIG_IGNORE_RFC1918:
 			config.ignore_rfc1918 = *(bool *)value;
 			return 1;
-		
+		case LFM_CONFIG_TCP_TIMEWAIT:
+			config.tcp_timewait = *(bool *)value;
+			return 1;
+			
 	}
 	return 0;
 }
@@ -272,7 +277,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 
 /* Updates the flow state based primarily on the TCP flags */
 void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
-		double ts, uint32_t payload_len) {
+		double ts) {
 	assert(tcp);
 	assert(flow);
 
@@ -281,11 +286,6 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 		/* FINACK marks the conclusion of a flow */
 		if (tcp->ack)
 			flow->tcp_state = TCP_STATE_CLOSE;
-		/* FINs with no payload consume a sequence number - not sure
-		 * about FINs that do have payload attached */
-		if (payload_len == 0) {
-			flow->dir_info[dir].packet_list.expected_seq ++;
-		}
 	}
 
 	if (tcp->syn) {
@@ -299,8 +299,7 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 			assert(0);
 	
 		/* Update our expected sequence number */
-		flow->dir_info[dir].packet_list.expected_seq = 
-			ntohl(tcp->seq) + 1;
+		//flow->dir_info[dir].packet_list.expected_seq = ntohl(tcp->seq);
 		if (flow->dir_info[dir].first_pkt_ts == 0.0) 
 			flow->dir_info[dir].first_pkt_ts = ts;
 	}
@@ -321,10 +320,9 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
  * realistically possible
  */
 void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
-	ExpireList *exp_list;
+	ExpireList *exp_list = NULL;
 	switch(flow->tcp_state) {
 		case TCP_STATE_RESET:
-		case TCP_STATE_CLOSE:
 			/* We want to expire this as soon as possible */
 			flow->expire_time = ts;
 			exp_list = &expired_flows;
@@ -347,8 +345,21 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 			exp_list = &expire_udp;
 			break;
 			
+		case TCP_STATE_CLOSE:
+			if (config.tcp_timewait) {
+				flow->expire_time = ts + 120.0;
+				exp_list = &expire_udp;
+			} else {
+				/* We want to expire this as soon as possible */
+				flow->expire_time = ts;
+				exp_list = &expired_flows;
+			}
+			break;
+				
+				
 	}
-	
+
+	assert(exp_list);
 	flow->expire_list->erase(active_flows[flow->id]);
 	flow->expire_list = exp_list;
 	exp_list->push_front(flow);

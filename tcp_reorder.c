@@ -35,9 +35,19 @@ static void update_expected_seqnum(tcp_reorder_t *list,
 	libtrace_ip_t *ip = trace_get_ip(packet);
 	libtrace_tcp_t *tcp = trace_get_tcp(packet);
 	assert(tcp);
+
+	if (tcp->syn) {
+		list->expected_seq = ntohl(tcp->seq) + 1;
+		return;
+	}
 	
 	payload_size = ntohs(ip->ip_len) - (4 * (tcp->doff + ip->ip_hl));
 
+	/* FINs consume a sequence number */
+	if (tcp->fin) {
+		list->expected_seq ++;
+		return;
+	}
 	list->expected_seq += payload_size;
 
 }
@@ -45,7 +55,7 @@ static void update_expected_seqnum(tcp_reorder_t *list,
 
 /* Inserts a packet into a reordering list */
 static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head, 
-		libtrace_packet_t *packet, uint32_t seq) {
+		libtrace_packet_t *packet, uint32_t seq, bool *dup) {
 	
 	if ( head == NULL || seq_cmp(head->seq_num, seq) > 0 ) {
 		tcp_reorder_node_t *new_node = 
@@ -61,11 +71,12 @@ static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head,
 		// duplicate!
 		// XXX what if the packet is bigger or smaller than the
 		// original?
+		*dup = true;
 		return head;
 	}
 
 	/* Recursion can be awesome */
-	head->next = insert_list(head->next, packet, seq);
+	head->next = insert_list(head->next, packet, seq, dup);
 	return head;
 }
 
@@ -97,14 +108,36 @@ void purge_reorder_list(tcp_reorder_t *list) {
  */	
 int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) { 
 	
+	libtrace_ip_t *ip = trace_get_ip(packet);
 	libtrace_tcp_t *tcp = trace_get_tcp(packet);
 	uint32_t seq_num;
+	bool dup = false;
+	
 	if (tcp == NULL) {
 		fprintf(stderr, "Warning: push_tcp_packet passed a non-TCP packet!\n");
 		return -1;
 	}
 
 	seq_num = ntohl(tcp->seq);
+	
+	if (tcp->syn) {
+		list->expected_seq = seq_num;
+		list->head = insert_list(list->head, packet, seq_num, &dup);
+		if (dup)
+			return 0;
+		return 1;
+	} 
+		
+	if (tcp->ack && !tcp->fin) {
+		uint32_t size;
+		size = (htons(ip->ip_len) - (ip->ip_hl * 4) - (tcp->doff * 4));
+
+		/* Don't insert regular ACKs into the reordering list */
+		if (size == 0)
+			return 0;
+	}
+
+	
 	if ( seq_cmp(list->expected_seq, seq_num) > 0) {
 		/* Probably a re-transmit of a packet that has been already
 		 * dealt with */
@@ -113,8 +146,10 @@ int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
 		 * expected sequence number */
 		return 0;
 	}
+	list->head = insert_list(list->head, packet, seq_num, &dup);
+	if (dup)
+		return 0;
 	
-	list->head = insert_list(list->head, packet, seq_num);
 	return 1;
 }
 
@@ -161,4 +196,15 @@ int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 
 	update_expected_seqnum(list, *packet);
 	return 1;
+}
+
+void traverse_tcp_list(tcp_reorder_t *list) {
+	tcp_reorder_node_t *head = list->head;
+
+	while (head != NULL) {
+		printf("%u ", head->seq_num);
+		head = head->next;
+	}
+	printf("\n");
+
 }

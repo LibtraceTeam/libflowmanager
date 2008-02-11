@@ -1,5 +1,5 @@
 PREFIX=/home/spa1/wdcap3
-CPPFLAGS=-g -Wall -W -D_FILE_OFFSET_BITS=64 -I$(PREFIX)/include -I.
+CPPFLAGS=-g -Wall -W -Os -D_FILE_OFFSET_BITS=64 -I$(PREFIX)/include -I.
 LDFLAGS=-L$(PREFIX)/lib
 LDLIBS=-ltrace -lpacketdump
 
