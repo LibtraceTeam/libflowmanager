@@ -261,11 +261,11 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 		new_conn = new Flow(pkt_id);
 		new_conn->tcp_state = TCP_STATE_NOTTCP;
 		exp_list = &expire_udp;
-		
-	}
 	
+	}
+
 	dir = trace_get_direction(packet);
-	if (new_conn->dir_info[dir].first_pkt_ts == 0.0) 
+	if (dir < 2 && new_conn->dir_info[dir].first_pkt_ts == 0.0) 
 		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
 	new_conn->expire_list = exp_list;
 	exp_list->push_front(new_conn);
@@ -281,6 +281,9 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 	assert(tcp);
 	assert(flow);
 
+	if (dir >= 2)
+		return;
+	
 	if (tcp->fin) {
 		flow->dir_info[dir].saw_fin = true;
 		/* FINACK marks the conclusion of a flow */

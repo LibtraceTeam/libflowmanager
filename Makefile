@@ -1,4 +1,4 @@
-PREFIX=/home/spa1/wdcap3
+PREFIX=/home/spa1/install64
 CPPFLAGS=-g -Wall -W -Os -D_FILE_OFFSET_BITS=64 -I$(PREFIX)/include -I.
 LDFLAGS=-L$(PREFIX)/lib
 LDLIBS=-ltrace -lpacketdump
