@@ -173,12 +173,15 @@ int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 	}
 
 	while (seq_cmp(head->seq_num, list->expected_seq) < 0) {
+		if (head->packet == *packet)
+			*packet = NULL;
 		trace_destroy_packet(head->packet);
 		list->head = head->next;
 		free(head);
 		head = list->head;
-		if (head == NULL)
+		if (head == NULL) {
 			return 0;
+		}
 	}
 
 	if ( seq_cmp(head->seq_num, list->expected_seq) > 0 ) {
