@@ -162,9 +162,9 @@ static void icmp_error(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
  * The parameter 'is_new_flow' is set to true if a new Flow had to be created.
  * It is set to false if the Flow already existed in the flow map.
  */
-Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
+Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
+		bool *is_new_flow) {
 	uint16_t src_port, dst_port;
-	uint8_t dir;
 	libtrace_ip_t *ip;
         FlowId pkt_id;
         Flow *new_conn;
@@ -185,9 +185,15 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 		return NULL;
 	}
 
+	/* Ignore fragmented TCP and UDP packets - we don't do fragment 
+	 * reassembly 
+	 */
+	if (src_port == 0 && dst_port == 0 && (ip->ip_p == 6 || ip->ip_p == 17))
+		return NULL;
+
 	/* Force ICMP flows to have port numbers of zero, rather than
 	 * whatever random values trace_get_X_port might give us */
-	if (ip->ip_p == 1 && trace_get_direction(packet) == 0) {
+	if (ip->ip_p == 1 && dir == 0) {
 		pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
 				0, 0, ip->ip_p, next_conn_id);
 	} else if (ip->ip_p == 1) {
@@ -264,7 +270,6 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow) {
 	
 	}
 
-	dir = trace_get_direction(packet);
 	if (dir < 2 && new_conn->dir_info[dir].first_pkt_ts == 0.0) 
 		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
 	new_conn->expire_list = exp_list;
@@ -287,7 +292,8 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 	if (tcp->fin) {
 		flow->dir_info[dir].saw_fin = true;
 		/* FINACK marks the conclusion of a flow */
-		if (tcp->ack)
+		//if (tcp->ack)
+		if (flow->dir_info[0].saw_fin && flow->dir_info[1].saw_fin)
 			flow->tcp_state = TCP_STATE_CLOSE;
 	}
 
@@ -340,11 +346,12 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 		case TCP_STATE_HALFCLOSE:
 		case TCP_STATE_ESTAB:
 			flow->expire_time = ts + 7440.0;
+			//flow->expire_time = ts + 600.0;
 			exp_list = &expire_tcp_estab;
 			break;
 			
 		case TCP_STATE_NOTTCP:
-			flow->expire_time = ts + 120.0;
+			flow->expire_time = ts + 140.0;
 			exp_list = &expire_udp;
 			break;
 			
@@ -385,7 +392,10 @@ static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
 		return NULL;
 	
 	exp_flow = expire->back();
-	if (force || exp_flow->expire_time <= ts) {
+	if (exp_flow->expire_time <= ts)
+		exp_flow->expired = true;
+
+	if (force || exp_flow->expired) {
 		expire->pop_back();
 		active_flows.erase(exp_flow->id);
 		return exp_flow;
@@ -428,6 +438,7 @@ Flow::Flow(const FlowId conn_id) {
 	expire_time = 0.0;
 	saw_rst = false;
 	tcp_state = TCP_STATE_NOTTCP;
+	expired = false;
 	extension = NULL;
 }
 

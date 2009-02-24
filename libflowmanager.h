@@ -78,6 +78,7 @@ class Flow {
 		double expire_time;	 /* When we are due to expire */
 		tcp_state_t tcp_state;
 		bool saw_rst;	/* Have we seen a TCP RST for this flow */
+		bool expired;
 		
 		/* Users of this library can use this pointer to store
 		 * per-flow data they require above and beyond what is
@@ -91,7 +92,8 @@ typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
 Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a, 
 		uint16_t port_b, uint8_t proto);
-Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, bool *is_new_flow);
+Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
+		bool *is_new_flow);
 void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
 		double ts);
 void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
