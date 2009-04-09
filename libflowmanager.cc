@@ -15,11 +15,13 @@
 struct lfm_config_opts {
 	bool ignore_rfc1918;
 	bool tcp_timewait;
+	bool short_udp;
 };
 
 ExpireList expire_tcp_syn;
 ExpireList expire_tcp_estab;
-ExpireList expire_udp;
+ExpireList expire_udp;		/* a bit of a misnomer = all non-TCP flows */
+ExpireList expire_udpshort;	/* contains short-lived UDP flows */
 
 ExpireList expired_flows;
 
@@ -27,6 +29,7 @@ FlowMap active_flows;
 struct lfm_config_opts config = {
 	false,		/* ignore RFC1918 */
 	false,		/* TCP timewait */
+	false		/* Expire short-lived UDP flows quickly */
 };
 
 static int next_conn_id = 0;
@@ -38,6 +41,9 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 			return 1;
 		case LFM_CONFIG_TCP_TIMEWAIT:
 			config.tcp_timewait = *(bool *)value;
+			return 1;
+		case LFM_CONFIG_SHORT_UDP:
+			config.short_udp = *(bool *)value;
 			return 1;
 			
 	}
@@ -153,6 +159,19 @@ static void icmp_error(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
 	orig_flow->tcp_state = TCP_STATE_RESET;
 }
 
+static void update_udp_state(Flow *f, uint8_t dir) {
+
+	if (dir == 1)
+		return;
+	
+	if (!f->saw_outbound)
+		f->saw_outbound = true;
+	else {
+		f->tcp_state = TCP_STATE_UDPLONG;
+	}
+
+}
+
 /* Returns a pointer to the Flow that matches the packet provided. If no such
  * Flow exists, a new Flow is created and added to the flow map before being
  * returned.
@@ -217,6 +236,11 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	if (i != active_flows.end()) {
 		/* Found the flow in the map! */
 		Flow *pkt_conn = *((*i).second);
+		
+		/* Update UDP "state" */
+		if (ip->ip_p == 17) 
+			update_udp_state(pkt_conn, dir);
+		
 		*is_new_flow = false;
 		return pkt_conn;
 	}
@@ -265,8 +289,23 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		/* We don't have handy things like SYN flags to 
 		 * mark the beginning of UDP connections */
 		new_conn = new Flow(pkt_id);
-		new_conn->tcp_state = TCP_STATE_NOTTCP;
-		exp_list = &expire_udp;
+		if (ip->ip_p == 17) {
+			if (dir == 0)
+				new_conn->saw_outbound = true;
+
+			if (config.short_udp) {
+				new_conn->tcp_state = TCP_STATE_UDPSHORT;
+				exp_list = &expire_udpshort;
+			} else {
+				new_conn->tcp_state = TCP_STATE_UDPLONG;
+				exp_list = &expire_udp;
+			}
+
+		}
+		else {
+			new_conn->tcp_state = TCP_STATE_NOTTCP;
+			exp_list = &expire_udp;
+		}
 	
 	}
 
@@ -351,8 +390,14 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 			break;
 			
 		case TCP_STATE_NOTTCP:
+		case TCP_STATE_UDPLONG:
 			flow->expire_time = ts + 140.0;
 			exp_list = &expire_udp;
+			break;
+
+		case TCP_STATE_UDPSHORT:
+			flow->expire_time = ts + 10.0;
+			exp_list = &expire_udpshort;
 			break;
 			
 		case TCP_STATE_CLOSE:
@@ -427,6 +472,10 @@ Flow *lfm_expire_next_flow(double ts, bool force) {
 	if (exp_flow != NULL)
 		return exp_flow;
 
+	exp_flow = get_next_expired(&expire_udpshort, ts, force);
+	if (exp_flow != NULL)
+		return exp_flow;
+
 	return get_next_expired(&expired_flows, ts, force);
 }
 
@@ -437,19 +486,20 @@ Flow::Flow(const FlowId conn_id) {
 	expire_list = NULL;
 	expire_time = 0.0;
 	saw_rst = false;
+	saw_outbound = false;
 	tcp_state = TCP_STATE_NOTTCP;
 	expired = false;
 	extension = NULL;
 }
 
 DirectionInfo::DirectionInfo() {
-	packet_list.head = NULL;
-	packet_list.expected_seq = 0;
+	//packet_list.head = NULL;
+	//packet_list.expected_seq = 0;
 	saw_fin = false;
 	saw_syn = false;
 	first_pkt_ts = 0.0;
 }
 
 DirectionInfo::~DirectionInfo() {
-	purge_reorder_list(&packet_list);
+	//purge_reorder_list(&packet_list);
 }

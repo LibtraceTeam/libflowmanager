@@ -4,11 +4,13 @@
 #include <map>
 #include <list>
 #include <inttypes.h>
-#include "tcp_reorder.h"
+
+#include <libtrace.h>
 
 typedef enum {
 	LFM_CONFIG_IGNORE_RFC1918,
-	LFM_CONFIG_TCP_TIMEWAIT
+	LFM_CONFIG_TCP_TIMEWAIT,
+	LFM_CONFIG_SHORT_UDP
 		
 } lfm_config_t;
 
@@ -45,7 +47,9 @@ class FlowId {
 };
 
 /* List of TCP connection states, including a NOT TCP state which should
- * be used by all non-TCP transports */
+ * be used by all non-TCP transports 
+ *
+ * XXX I've started including UDP "state" in */
 typedef enum {
 	TCP_STATE_NOTTCP,
 	TCP_STATE_NEW,
@@ -53,13 +57,15 @@ typedef enum {
 	TCP_STATE_ESTAB,
 	TCP_STATE_HALFCLOSE,
 	TCP_STATE_RESET,
-	TCP_STATE_CLOSE
+	TCP_STATE_CLOSE,
+	TCP_STATE_UDPSHORT,
+	TCP_STATE_UDPLONG
 } tcp_state_t;
 
 /* Standard per-direction information, including the reordering list */
 class DirectionInfo {
 	public:
-		tcp_reorder_t packet_list;
+		//tcp_reorder_t packet_list;
 		double first_pkt_ts;
 		bool saw_fin; /* Have we seen a TCP FIN in this direction */
 		bool saw_syn; /* Have we seen a TCP SYN in this direction */
@@ -79,6 +85,7 @@ class Flow {
 		tcp_state_t tcp_state;
 		bool saw_rst;	/* Have we seen a TCP RST for this flow */
 		bool expired;
+		bool saw_outbound;
 		
 		/* Users of this library can use this pointer to store
 		 * per-flow data they require above and beyond what is
