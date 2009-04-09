@@ -67,6 +67,10 @@ static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head,
 		return new_node;
 	}
 
+	/* We actually might want to keep duplicates, i.e. for loss detection
+	 */
+	
+	/*
 	if ( head->seq_num == seq ) {
 		// duplicate!
 		// XXX what if the packet is bigger or smaller than the
@@ -74,6 +78,7 @@ static tcp_reorder_node_t *insert_list(tcp_reorder_node_t *head,
 		*dup = true;
 		return head;
 	}
+	*/
 
 	/* Recursion can be awesome */
 	head->next = insert_list(head->next, packet, seq, dup);
@@ -103,14 +108,15 @@ void purge_reorder_list(tcp_reorder_t *list) {
 /* Pushes a packet onto the reordering list 
  *
  * Returns -1 if passed a non-tcp packet
- * Returns  0 if the packet is or was already in the list 
- * Returns  1 if the packet is pushed on successfully 
+ * Returns  0 if the packet is an ACK without data 
+ * Returns  1 if the packet is pushed on successfully or should be ignored 
  */	
 int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) { 
 	
 	libtrace_ip_t *ip = trace_get_ip(packet);
 	libtrace_tcp_t *tcp = trace_get_tcp(packet);
 	uint32_t seq_num;
+	uint32_t size;
 	bool dup = false;
 	
 	if (tcp == NULL) {
@@ -120,17 +126,16 @@ int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
 
 	seq_num = ntohl(tcp->seq);
 	
+	size = (htons(ip->ip_len) - (ip->ip_hl * 4) - (tcp->doff * 4));
+	
 	if (tcp->syn) {
 		list->expected_seq = seq_num;
 		list->head = insert_list(list->head, packet, seq_num, &dup);
-		if (dup)
-			return 0;
+		printf("SYN: %u\n", seq_num);
 		return 1;
 	} 
 		
 	if (tcp->ack && !tcp->fin) {
-		uint32_t size;
-		size = (htons(ip->ip_len) - (ip->ip_hl * 4) - (tcp->doff * 4));
 
 		/* Don't insert regular ACKs into the reordering list */
 		if (size == 0)
@@ -144,11 +149,24 @@ int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
 
 		/* XXX Should check that this doesn't overlap with the
 		 * expected sequence number */
-		return 0;
+		printf("Expected %u - we have %u, return 2\n",
+			list->expected_seq, seq_num);
+		return 2;
 	}
+	
+	if (seq_cmp(list->expected_seq, seq_num) == 0) {
+		/* This packet is the expected next packet - tell the
+		 * caller that they can use it right away rather than
+		 * consuming it */
+		printf("Expected %u - we have %u, return 3\n",
+			list->expected_seq, seq_num);
+		list->expected_seq += size;
+		return 3;
+	}
+
+	printf("Adding %u - expected %u\n", seq_num, list->expected_seq);
 	list->head = insert_list(list->head, packet, seq_num, &dup);
-	if (dup)
-		return 0;
+	
 	
 	return 1;
 }
@@ -165,14 +183,29 @@ int push_tcp_packet(tcp_reorder_t *list, libtrace_packet_t *packet) {
  * Note that in the case of a zero return value, you still need to check 
  * whether 'packet' is NULL
  */
-int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
+libtrace_packet_t *pop_tcp_packet(tcp_reorder_t *list) {
 	
 	tcp_reorder_node_t *head = list->head;
+	libtrace_packet_t *packet;
+
 	if ( list->head == NULL ) {
-		return 0;
+		return NULL;
 	}
 
+
+	/* Expected sequence number is higher than the first packet
+	 * in the list - keep removing packets from the list until the first
+	 * packet has an appropriate sequence number */
+
+	/* XXX - should this really be occurring? */
 	while (seq_cmp(head->seq_num, list->expected_seq) < 0) {
+		list->head = head->next;
+		free(head);
+		head = list->head;
+		if (head == NULL)
+			return NULL;
+		
+		/*	
 		if (head->packet == *packet)
 			*packet = NULL;
 		trace_destroy_packet(head->packet);
@@ -182,23 +215,20 @@ int pop_tcp_packet(tcp_reorder_t *list, libtrace_packet_t **packet) {
 		if (head == NULL) {
 			return 0;
 		}
+		*/
 	}
 
 	if ( seq_cmp(head->seq_num, list->expected_seq) > 0 ) {
 		/* missing a packet */
-		*packet = NULL;
-		return 0;
+		return NULL;
 	}
 
-	if (*packet != head->packet) {
-		trace_destroy_packet(*packet);
-		*packet = head->packet;
-	}
+	packet = head->packet;
 	list->head = head->next;
 	free(head);
 
-	update_expected_seqnum(list, *packet);
-	return 1;
+	update_expected_seqnum(list, packet);
+	return packet;
 }
 
 void traverse_tcp_list(tcp_reorder_t *list) {
