@@ -10,7 +10,8 @@
 typedef enum {
 	LFM_CONFIG_IGNORE_RFC1918,
 	LFM_CONFIG_TCP_TIMEWAIT,
-	LFM_CONFIG_SHORT_UDP
+	LFM_CONFIG_SHORT_UDP,
+	LFM_CONFIG_VLAN
 		
 } lfm_config_t;
 
@@ -25,13 +26,15 @@ class FlowId {
         uint16_t port_a;
         uint16_t port_b;
         uint8_t proto;
-        uint32_t id_num;
+        uint16_t vlan;
+	uint32_t id_num;
 
         public:
         FlowId();
 
         FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
-                        uint16_t port_dst, uint8_t protocol, uint32_t id);
+                        uint16_t port_dst, uint8_t protocol, uint16_t vlan,
+			uint32_t id);
 
         bool operator<(const FlowId &b) const ;
 
@@ -42,6 +45,7 @@ class FlowId {
 	uint32_t get_client_ip() const ;
 	uint16_t get_server_port() const ;
         uint16_t get_client_port() const ;
+	uint16_t get_vlan_id() const ;
         uint8_t get_protocol() const ;
 
 };

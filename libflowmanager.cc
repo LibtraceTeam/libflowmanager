@@ -16,6 +16,7 @@ struct lfm_config_opts {
 	bool ignore_rfc1918;
 	bool tcp_timewait;
 	bool short_udp;
+	bool key_vlan;
 };
 
 ExpireList expire_tcp_syn;
@@ -29,7 +30,8 @@ FlowMap active_flows;
 struct lfm_config_opts config = {
 	false,		/* ignore RFC1918 */
 	false,		/* TCP timewait */
-	false		/* Expire short-lived UDP flows quickly */
+	false,		/* Expire short-lived UDP flows quickly */
+	true,		/* Use VLAN Id as part of the flow key */
 };
 
 static int next_conn_id = 0;
@@ -44,6 +46,9 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 			return 1;
 		case LFM_CONFIG_SHORT_UDP:
 			config.short_udp = *(bool *)value;
+			return 1;
+		case LFM_CONFIG_VLAN:
+			config.key_vlan = *(bool *)value;
 			return 1;
 			
 	}
@@ -84,10 +89,13 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
 	if (config.ignore_rfc1918 && rfc1918_ip_addr(ip_b)) 
 		return NULL;
 
+	/* XXX: We always are going to use a vlan id of zero. At some
+	 * point this function should accept a vlan ID as a parameter */
+
 	if (trace_get_server_port(proto, port_a, port_b) == USE_SOURCE) {
-		flow_id = FlowId(ip_a, ip_b, port_a, port_b, proto, 0);
+		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0);
 	} else {
-		flow_id = FlowId(ip_b, ip_a, port_b, port_a, proto, 0);
+		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0);
 	}
 	FlowMap::iterator i = active_flows.find(flow_id);
 
@@ -172,6 +180,41 @@ static void update_udp_state(Flow *f, uint8_t dir) {
 
 }
 
+uint16_t extract_vlan_id(libtrace_packet_t *packet) {
+
+	void *ethernet = NULL;
+	void *payload = NULL;
+	uint16_t ethertype;
+	libtrace_linktype_t linktype;
+	uint32_t remaining;
+	libtrace_8021q_t *vlan;
+	uint16_t tag;
+
+	ethernet = trace_get_layer2(packet, &linktype, &remaining);
+	if (linktype != TRACE_TYPE_ETH)
+		return 0;
+	
+	payload = trace_get_payload_from_layer2(ethernet, linktype,
+			&ethertype, &remaining);
+
+	if (payload == NULL || remaining == 0)
+		return 0;
+	
+	/* XXX Only gets the topmost label */
+	if (ethertype != 0x8100)
+		return 0;
+
+	vlan = (libtrace_8021q_t *)payload;
+	if (remaining < 4)
+		return 0;
+	
+	tag = *(uint16_t *)vlan;
+	tag = ntohs(tag);
+	tag = tag & 0x0fff;
+	return tag;
+
+}
+
 /* Returns a pointer to the Flow that matches the packet provided. If no such
  * Flow exists, a new Flow is created and added to the flow map before being
  * returned.
@@ -190,12 +233,17 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	ExpireList *exp_list;
 	uint16_t l3_type;
 	uint32_t pkt_left = 0;
+	uint16_t vlan_id = 0;
 	
         ip = (libtrace_ip_t *)trace_get_layer3(packet, &l3_type, &pkt_left);
 	if (ip == NULL)
 		return NULL;
 	/* Deal with IPv4 only */
 	if (l3_type != 0x0800) return NULL;
+	
+	if (config.key_vlan)
+		vlan_id = extract_vlan_id(packet);
+	
 	src_port = trace_get_source_port(packet);
         dst_port = trace_get_destination_port(packet);
 	
@@ -214,22 +262,22 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	 * whatever random values trace_get_X_port might give us */
 	if (ip->ip_p == 1 && dir == 0) {
 		pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
-				0, 0, ip->ip_p, next_conn_id);
+				0, 0, ip->ip_p, vlan_id, next_conn_id);
 	} else if (ip->ip_p == 1) {
 		pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
-				0, 0, ip->ip_p, next_conn_id);
+				0, 0, ip->ip_p, vlan_id, next_conn_id);
 	}
 	
 	else if (trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE) {
                 /* Server port = source port */
                 pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
                                         src_port, dst_port, ip->ip_p,
-                                        next_conn_id);
+                                        vlan_id, next_conn_id);
         } else {
                 /* Server port = dest port */
                 pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
                                         dst_port, src_port, ip->ip_p,
-                                        next_conn_id);
+                                        vlan_id, next_conn_id);
         }
 
 	FlowMap::iterator i = active_flows.find(pkt_id);

@@ -22,6 +22,8 @@ int FlowId::cmp (const FlowId &b) const {
 	if (ip_a < b.ip_a)    return -1;
 	if (ip_a > b.ip_a)    return 1;
 
+	if (vlan != b.vlan)
+		return vlan - b.vlan;
 	return proto - b.proto;
 }
 
@@ -31,16 +33,19 @@ FlowId::FlowId() {
 	port_a = 0;
 	port_b = 0;
 	proto = 0;
+	vlan = 0;
 	id_num = 0;
 }
 
 FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
-		uint16_t port_dst, uint8_t protocol, uint32_t id) {
+		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
+		uint32_t id) {
 	ip_a = ip_src;
 	ip_b = ip_dst;
 	port_a = port_src;
 	port_b = port_dst;
 	proto = protocol;
+	vlan = vlan_id;
 	id_num = id;
 }
 
@@ -56,8 +61,15 @@ bool FlowId::operator<(const FlowId &b) const {
 	if (ip_a != b.ip_a)
 		return ip_a < b.ip_a;
 
+	if (vlan != b.vlan)
+		return vlan < b.vlan;
+	
 	return proto < b.proto;
 
+}
+
+uint16_t FlowId::get_vlan_id() const {
+	return vlan;
 }
 
 uint32_t FlowId::get_id_num() const {
