@@ -31,7 +31,7 @@ struct lfm_config_opts config = {
 	false,		/* ignore RFC1918 */
 	false,		/* TCP timewait */
 	false,		/* Expire short-lived UDP flows quickly */
-	false,		/* Use VLAN Id as part of the flow key */
+	false		/* Use VLAN Id as part of the flow key */
 };
 
 static int next_conn_id = 0;
