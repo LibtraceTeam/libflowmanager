@@ -1,7 +1,7 @@
 /*
  * This file is part of libflowmanager
  *
- * Copyright (c) 2007,2008 The University of Waikato, Hamilton, New Zealand.
+ * Copyright (c) 2009 The University of Waikato, Hamilton, New Zealand.
  * Author: Shane Alcock
  *          
  * All rights reserved.
@@ -254,6 +254,12 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
  * Returns:
  *      a flow that has expired, or NULL if there are no expired flows 
  *      available in any of the LRUs
+ *
+ * NOTE: you MUST call delete() yourself on the flow that is returned by this 
+ * function once you are finished with it.
+ * It is also your responsibility to free any memory that is stored in the
+ * "extension" pointer before deleting the flow.
+ *
  */
 Flow *lfm_expire_next_flow(double ts, bool force);
 

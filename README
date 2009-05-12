@@ -1,0 +1,125 @@
+Libflowmanager - A library for matching packets from trace files to TCP and UDP 
+flows
+
+Libflowmanager is Copyright (c) 2009 The University of Waikato, Hamilton, New
+Zealand. All rights reserved.
+
+See the file COPYING for full licensing details for this software.
+
+Report any bugs, questions or comments to contact@wand.net.nz
+
+Introduction
+============
+Libflowmanager was designed to perform all of the common tasks that are
+required when performing measurement tasks at the flow-level. In particular, it 
+maintains a table of active flows and exports an API for matching packets to
+existing flows (or creating new flows, if required). It also deals sensibly
+with flow expiration, ensuring that flows are expired after an appropriate 
+amount of idle time.
+
+Libflowmanager also comes bundled with an API for reordering TCP packets based
+on sequence number. Trace files typically record packets chronologically, 
+which means that packets often will be read from the trace file out-of-order.
+However, many TCP measurement applications become difficult if the packets are
+not in strict sequence number order. This is where the TCP reordering API comes
+in. 
+
+
+Required Libraries
+==================
+libtrace 3.0.6 or better
+	* available from http://research.wand.net.nz/software/libtrace.php
+
+Installation
+============
+After having installed the required libraries, running the following series of
+commands should install libflowmanager:
+
+	./configure
+	make
+	make install
+
+By default, libflowmanager installs to /usr/local/ - this can be changed by
+appending the --prefix=<new location> option to ./configure.
+
+
+Libflowmanager API Notes
+========================
+
+  * Before reading any packets, use lfm_set_config_option() to set any
+    configuration options.
+
+  * For each packet perform the following tasks in the specified order:
+  	+ Call lfm_match_packet_to_flow() on the packet to get a pointer to 
+	  the flow object that the packet matches. 
+	+ Call lfm_check_tcp_flags() to update the TCP state for TCP flows
+	+ Call lfm_update_flow_expiry_timeout() to update the expiry time for
+	  the current flow
+	+ Repeatedly call lfm_expire_next_flow() until all expired flows have
+	  been returned
+	
+  * The flow object contains a void pointer called "extension". This is
+    designed for the user to store their own per-flow data. Memory should be
+    allocated and initialised for "extension" data whenever the "is_new_flow"
+    flag is set to true by lfm_match_packet_to_flow().
+
+    For example, if I want to store packet and byte counts for each flow, I
+    would allocate a structure containing two counters for each new flow and 
+    store a pointer to that structure inside "extension". Everytime that flow 
+    is subsequently returned by lfm_match_packet_to_flow(), I can cast 
+    the void pointer "extension" to my structure and update the counters.
+    
+  * You are responsible for freeing any "extension" data belonging to a flow
+    when that flow expires.
+
+  * Similarly, delete() MUST be called on any flow object returned by 
+    lfm_expire_next_flow(). It has been removed from the active flows table
+    but the memory is not freed because libflowmanager assumes that you might
+    want to do something with the flow itself upon expiry.
+  
+  * Some API functions require a direction parameter to indicate whether the 
+    packet was incoming or outgoing. We leave this up to the user to define
+    direction because a) trace_get_direction() only works for some trace
+    formats and b) the user may want to define direction differently anyway.
+
+TCP Reordering API Notes
+========================
+
+  * Each flow requires two TCP reorderers, one for each direction. If you
+    are using libflowmanager to manage the flows themselves, you will want to
+    store your TCP reorderers inside the "extension" variable described above.
+
+  * Each reorderer needs to be created with tcp_create_reorderer() and
+    should be destroyed using trace_destroy_reorderer when the flow is expired.
+
+  * Each reorderer requires two callback functions - a read callback and a
+    destroy callback. The read callback will be called by the reorderer every
+    time a packet is inserted into the reordering list. The destroy callback
+    to tidy up after any packets left in the reordering list when a reorderer
+    is destroyed, i.e. if the flow expires while there are still gaps in the
+    packet sequence.
+    
+  * The read callback should take a libtrace packet and extract only the 
+    information your analysis requires from the packet. It should return a
+    pointer to an allocated structure containing your required data. This
+    pointer can then be accessed when the packet has been reordered so you
+    can access your data.
+
+  * The destroy callback must free any memory that was allocated during the
+    read callback, including the structure that was used to store all the 
+    data.
+
+  * Every TCP packet should be passed to tcp_reorder_packet().
+
+  * If the return value of tcp_reorder_packet() did not recommend ignoring the
+    packet, repeatedly call tcp_pop_packet() until there are no packets 
+    available to pop from the reordering list.
+  
+  * You will need to manually call your destroy callback on the "data"
+    pointer in the reordered packets returned by tcp_pop_packet(). 
+
+  * free() MUST also be called on the reordered packets themselves, i.e. the
+    tcp_packet_t, returned by tcp_pop_packet() once you have finished with
+    them. 
+  
+

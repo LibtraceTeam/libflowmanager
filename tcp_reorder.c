@@ -1,7 +1,7 @@
 /*
  * This file is part of libflowmanager
  *
- * Copyright (c) 2007,2008 The University of Waikato, Hamilton, New Zealand.
+ * Copyright (c) 2009 The University of Waikato, Hamilton, New Zealand.
  * Author: Shane Alcock
  *          
  * All rights reserved.
