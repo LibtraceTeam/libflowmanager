@@ -1,3 +1,32 @@
+/*
+ * This file is part of libflowmanager
+ *
+ * Copyright (c) 2007,2008 The University of Waikato, Hamilton, New Zealand.
+ * Author: Shane Alcock
+ *          
+ * All rights reserved.
+ *
+ * This code has been developed by the University of Waikato WAND 
+ * research group. For further information please see http://www.wand.net.nz/
+ *
+ * libflowmanager is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * libflowmanager is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with libflowmanager; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * $Id$
+ *
+ */
+
 #ifndef LIBFLOWMANAGER_H_
 #define LIBFLOWMANAGER_H_
 
@@ -7,26 +36,41 @@
 
 #include <libtrace.h>
 
+
+/* Support configuration options for libflowmanager */
 typedef enum {
+	/* Ignore packets containing RFC 1918 addresses */
 	LFM_CONFIG_IGNORE_RFC1918,
+
+	/* Wait a short time before expiring flows for TCP connections that
+	 * have closed via FIN packets */
 	LFM_CONFIG_TCP_TIMEWAIT,
+
+	/* Use experimental fast expiry for short-lived UDP flows */
 	LFM_CONFIG_SHORT_UDP,
+
+	/* Use VLAN Id as part of flow keys */
 	LFM_CONFIG_VLAN
 		
 } lfm_config_t;
 
-/* We just use a standard 5-tuple as a flow key */
+/* We just use a standard 5-tuple as a flow key (with rudimentary support for
+ * VLAN Ids) */
 /* XXX: Consider expanding this to support mac addresses as well */
 class FlowId {
         private:
         int cmp(const FlowId &b) const ;
 
+	/* The five tuple */
         uint32_t ip_a;
         uint32_t ip_b;
         uint16_t port_a;
         uint16_t port_b;
         uint8_t proto;
+
+	/* VLAN Id */
         uint16_t vlan;
+	/* Unique flow ID number */
 	uint32_t id_num;
 
         public:
@@ -38,6 +82,7 @@ class FlowId {
 
         bool operator<(const FlowId &b) const ;
 
+	/* Accessor functions */
         uint32_t get_id_num() const ;
         char *get_server_ip_str() const ;
         char *get_client_ip_str() const ;
@@ -50,27 +95,44 @@ class FlowId {
 
 };
 
-/* List of TCP connection states, including a NOT TCP state which should
- * be used by all non-TCP transports 
- *
- * XXX I've started including UDP "state" in */
+/* List of flow states - flow state often determines how long a flow must be
+ * idle before expiring */
 typedef enum {
-	TCP_STATE_NOTTCP,
-	TCP_STATE_NEW,
-	TCP_STATE_CONN,
-	TCP_STATE_ESTAB,
-	TCP_STATE_HALFCLOSE,
-	TCP_STATE_RESET,
-	TCP_STATE_CLOSE,
-	TCP_STATE_UDPSHORT,
-	TCP_STATE_UDPLONG
-} tcp_state_t;
+	/* Unknown protocol - no sensible state is possible */
+	FLOW_STATE_NONE,	
+	
+	/* New TCP connection */
+	FLOW_STATE_NEW,
+	
+	/* Unestablished TCP connection */
+	FLOW_STATE_CONN,
 
-/* Standard per-direction information, including the reordering list */
+	/* Established TCP connection */
+	FLOW_STATE_ESTAB,
+
+	/* Half-closed TCP connection */
+	FLOW_STATE_HALFCLOSE,
+
+	/* Reset TCP connection */
+	FLOW_STATE_RESET,
+
+	/* Closed TCP connection */
+	FLOW_STATE_CLOSE,
+
+	/* UDP flow where only one outgoing packet has been observed */
+	FLOW_STATE_UDPSHORT,
+
+	/* UDP flow where multiple outgoing packets have been seen */
+	FLOW_STATE_UDPLONG,
+
+	/* Flow experienced an ICMP error */
+	FLOW_STATE_ICMPERROR
+} flow_state_t;
+
+/* Data that must be stored separately for each half of the flow */
 class DirectionInfo {
 	public:
-		//tcp_reorder_t packet_list;
-		double first_pkt_ts;
+		double first_pkt_ts; /* Timestamp of first observed packet */
 		bool saw_fin; /* Have we seen a TCP FIN in this direction */
 		bool saw_syn; /* Have we seen a TCP SYN in this direction */
 
@@ -78,17 +140,34 @@ class DirectionInfo {
 		~DirectionInfo();
 };
 
+/* An list of flows, ordered by expire time */
 typedef std::list<class Flow *> ExpireList;
 
 class Flow {
 	public:
+		/* The flow key for this flow */
 		FlowId id;
+		
+		/* Per-direction information */
 		DirectionInfo dir_info[2];
-		ExpireList *expire_list; /* Which expiry list we are in */
-		double expire_time;	 /* When we are due to expire */
-		tcp_state_t tcp_state;
-		bool saw_rst;	/* Have we seen a TCP RST for this flow */
+
+		/* The LRU that the flow is currently in */
+		ExpireList *expire_list; 
+
+		/* The timestamp that the flow is due to expire */
+		double expire_time;
+
+		/* Current flow state */
+		flow_state_t flow_state; 
+
+		/* Have we seen a reset for this flow? */
+		bool saw_rst;	
+
+		/* Has the flow been expired by virtue of being idle for too
+		 * long (vs a forced expiry, for instance) */
 		bool expired;
+
+		/* Has an outbound packet been observed for this flow */
 		bool saw_outbound;
 		
 		/* Users of this library can use this pointer to store
@@ -96,19 +175,100 @@ class Flow {
 		 * defined in this class definition */
 		void *extension; 
 		
+		/* Constructor */
 		Flow(const FlowId conn_id);
 };
 
+
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
+/* Search the active flows map for a flow matching the given 5-tuple
+ *
+ * Parameters:
+ *      ip_a - the IP address of the first endpoint
+ *      ip_b - the IP address of the second endpoint
+ *      port_a - the port number used by the first endpoint
+ *      port_b - the port number used by the second endpoint
+ *      proto - the transport protocol
+ *
+ * Returns:
+ * 	a pointer to the flow matching the provided 5-tuple, or NULL if no
+ * 	matching flow exists.
+ */
 Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a, 
 		uint16_t port_b, uint8_t proto);
+
+/* Returns a pointer to the Flow that matches the packet provided. If no such
+ * Flow exists, a new Flow is created and added to the flow map before being
+ * returned.
+ *
+ * Parameters:
+ *      packet - the packet that is to be matched with a flow
+ *      dir - the direction of the packet. 0 indicates outgoing, 1 indicates
+ *            incoming.
+ *      is_new_flow - a boolean flag that is set to true by this function if
+ *                    a new flow was created for this packet. It is set to 
+ *                    false if the returned flow already existed in the flow 
+ *                    map.
+ * 
+ * Returns:
+ *      a pointer to the entry in the active flow map that matches the packet
+ *      provided, or NULL if the packet cannot be matched to a flow
+ *
+ */
 Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
 		bool *is_new_flow);
+
+/* Examines the TCP flags in a packet and updates the flow state accordingly
+ *
+ * Parameters: 
+ *      flow - the flow that the TCP packet belongs to
+ *      tcp - a pointer to the TCP header in the packet
+ *      dir - the direction of the packet (0=outgoing, 1=incoming)
+ *      ts - the timestamp from the packet
+ */
 void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
 		double ts);
+
+/* Updates the timeout for a Flow.
+ *
+ * The flow state determines how long the flow can be idle before it times out. 
+ *
+ * Many of the values are selected based on best practice for NAT devices, 
+ * which tend to be quite conservative.
+ *
+ * Parameters:
+ *      flow - the flow that is to be updated
+ *      ts - the timestamp of the last packet observed for the flow
+ */
 void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
+
+
+/* Finds and returns the next available flow that has expired.
+ *
+ * Parameters:
+ *      ts - the current timestamp 
+ *      force - if true, the next flow in the LRU will be forcibly expired,
+ *              regardless of whether it was due to expire or not.
+ *
+ * Returns:
+ *      a flow that has expired, or NULL if there are no expired flows 
+ *      available in any of the LRUs
+ */
 Flow *lfm_expire_next_flow(double ts, bool force);
+
+/* Sets a libflowmanager configuration option.
+ *
+ * Note that config options should be set BEFORE any packets are passed in
+ * to other libflowmanager functions.
+ *
+ * Parameters:
+ *      opt - the config option that is being changed
+ *      value - the value to set the option to
+ *
+ * Returns:
+ *      1 if the option is set successfully, 0 otherwise
+ */
 int lfm_set_config_option(lfm_config_t opt, void *value);
 
 #endif
