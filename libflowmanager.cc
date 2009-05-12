@@ -34,7 +34,6 @@
 #include <assert.h>
 
 #include "libflowmanager.h"
-//#include "tcp_reorder.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>

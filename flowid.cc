@@ -1,3 +1,33 @@
+/*
+ * This file is part of libflowmanager
+ *
+ * Copyright (c) 2007,2008 The University of Waikato, Hamilton, New Zealand.
+ * Author: Shane Alcock
+ *          
+ * All rights reserved.
+ *
+ * This code has been developed by the University of Waikato WAND 
+ * research group. For further information please see http://www.wand.net.nz/
+ *
+ * libflowmanager is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2 of the License, or
+ * (at your option) any later version.
+ *
+ * libflowmanager is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with libflowmanager; if not, write to the Free Software
+ * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *
+ * $Id$
+ *
+ */
+
+
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -27,6 +57,7 @@ int FlowId::cmp (const FlowId &b) const {
 	return proto - b.proto;
 }
 
+/* Constructor for a flow ID - set everything to zero! */
 FlowId::FlowId() {
 	ip_a = 0;
 	ip_b = 0;
@@ -37,6 +68,8 @@ FlowId::FlowId() {
 	id_num = 0;
 }
 
+/* A more useful constructor where we're provided with the values for the
+ * flow key */
 FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
 		uint32_t id) {
@@ -49,6 +82,7 @@ FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 	id_num = id;
 }
 
+/* 'less-than' operator for comparing Flow Ids */
 bool FlowId::operator<(const FlowId &b) const {
        	if (port_b != b.port_b)
 		return port_b < b.port_b;
@@ -68,6 +102,7 @@ bool FlowId::operator<(const FlowId &b) const {
 
 }
 
+/* Accessor functions for the various parts of the flow ID */
 uint16_t FlowId::get_vlan_id() const {
 	return vlan;
 }
@@ -76,15 +111,22 @@ uint32_t FlowId::get_id_num() const {
 	return id_num;
 }
 
+/* Provides a string representation of the server IP */
 char * FlowId::get_server_ip_str() const {
 	struct in_addr inp;
 	inp.s_addr = ip_a;
+
+	/* NOTE: the returned string is statically allocated - use it
+	 * or lose it! */
 	return inet_ntoa(inp);
 }
 
+/* Provides a string representation of the client IP */
 char * FlowId::get_client_ip_str() const {
 	struct in_addr inp;
 	inp.s_addr = ip_b;
+	/* NOTE: the returned string is statically allocated - use it
+	 * or lose it! */
 	return inet_ntoa(inp);
 }
 
