@@ -137,7 +137,6 @@ class DirectionInfo {
 		bool saw_syn; /* Have we seen a TCP SYN in this direction */
 
 		DirectionInfo();
-		~DirectionInfo();
 };
 
 /* An list of flows, ordered by expire time */

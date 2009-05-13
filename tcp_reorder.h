@@ -32,6 +32,10 @@
 
 #include <libtrace.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 /* Used to distinguish between different TCP events */
 typedef enum {
 	/* Not a valid TCP packet - do not attempt to reorder */
@@ -154,5 +158,9 @@ tcp_reorder_t tcp_reorder_packet(tcp_packet_list_t *ord,
  *
  */
 tcp_packet_t *tcp_pop_packet(tcp_packet_list_t *ord);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
