@@ -1,9 +1,9 @@
 
 
-AC_INIT([libflowmanager],[1.0.0],[contact@wand.net.nz],[libflowmanager])
+AC_INIT([libflowmanager],[1.0.1],[contact@wand.net.nz],[libflowmanager])
 
 AC_CONFIG_SRCDIR([libflowmanager.cc])
-AM_INIT_AUTOMAKE(libflowmanager, 1.0.0)
+AM_INIT_AUTOMAKE(libflowmanager, 1.0.1)
 
 AC_CONFIG_FILES([Makefile])
 
@@ -13,6 +13,7 @@ AM_CONFIG_HEADER([config.h])
 AC_CHECK_LIB([trace], [trace_create_packet],,trace_found=0)
 
 AC_PROG_CC
+AC_PROG_CXX
 AC_PROG_INSTALL
 
 AC_C_CONST
