@@ -644,6 +644,13 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 		 * move into the TCP Close state */
 		if (flow->dir_info[0].saw_fin && flow->dir_info[1].saw_fin)
 			flow->flow_state = FLOW_STATE_CLOSE;
+		/* A FIN in only one direction suggests that one end is keen
+		 * to close the connection - move into a state that has a
+		 * much shorter expiry time. This should help resolve issues
+		 * caused by annoying TCP stacks that do not bother to respond
+		 * with a FIN ACK of their own */
+		else if (flow->dir_info[0].saw_fin || flow->dir_info[1].saw_fin)
+			flow->flow_state = FLOW_STATE_HALFCLOSE;
 	}
 
 	if (tcp->syn) {
@@ -707,16 +714,19 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 			break;
 		
 		/* Unestablished TCP connections expire after 2 * the 
-		 * maximum segment lifetime (RFC 1122) */
+		 * maximum segment lifetime (RFC 1122) 
+		 *
+		 * XXX include half-closed flows in here to try and expire
+		 * single FIN flows reasonably quickly */
 		case FLOW_STATE_NEW:
 		case FLOW_STATE_CONN:
+		case FLOW_STATE_HALFCLOSE:
 			flow->expire_time = ts + 240.0;
 			exp_list = &expire_tcp_syn;
 			break;
 		
 		/* Established TCP connections expire after 2 hours and 4
 		 * minutes (RFC 5382) */	
-		case FLOW_STATE_HALFCLOSE:
 		case FLOW_STATE_ESTAB:
 			flow->expire_time = ts + 7440.0;
 			exp_list = &expire_tcp_estab;
@@ -725,7 +735,7 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 		/* UDP flows expire after 2 minutes (RFC 4787) */		
 		case FLOW_STATE_NONE:
 		case FLOW_STATE_UDPLONG:
-			flow->expire_time = ts + 140.0;
+			flow->expire_time = ts + 120.0;
 			exp_list = &expire_udp;
 			break;
 
