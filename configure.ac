@@ -1,11 +1,11 @@
 
 
-AC_INIT([libflowmanager],[1.0.1],[contact@wand.net.nz],[libflowmanager])
+AC_INIT([libflowmanager],[1.0.2],[contact@wand.net.nz],[libflowmanager])
 
-AC_CONFIG_SRCDIR([libflowmanager.cc])
-AM_INIT_AUTOMAKE(libflowmanager, 1.0.1)
+AC_CONFIG_SRCDIR([lib/libflowmanager.cc])
+AM_INIT_AUTOMAKE(libflowmanager, 1.0.2)
 
-AC_CONFIG_FILES([Makefile example/Makefile])
+AC_CONFIG_FILES([Makefile lib/Makefile example/Makefile])
 
 AC_GNU_SOURCE
 AM_CONFIG_HEADER([config.h])
