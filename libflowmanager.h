@@ -36,6 +36,9 @@
 
 #include <libtrace.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif 
 
 /* Support configuration options for libflowmanager */
 typedef enum {
@@ -275,5 +278,9 @@ Flow *lfm_expire_next_flow(double ts, bool force);
  *      1 if the option is set successfully, 0 otherwise
  */
 int lfm_set_config_option(lfm_config_t opt, void *value);
+
+#ifdef __cplusplus
+}
+#endif 
 
 #endif
