@@ -53,7 +53,10 @@ typedef enum {
 	LFM_CONFIG_SHORT_UDP,
 
 	/* Use VLAN Id as part of flow keys */
-	LFM_CONFIG_VLAN
+	LFM_CONFIG_VLAN,
+
+	/* Ignore ICMP errors that would normally expire a flow immediately */
+	LFM_CONFIG_IGNORE_ICMP_ERROR
 		
 } lfm_config_t;
 

@@ -56,6 +56,8 @@ struct lfm_config_opts {
 
 	/* If true, the VLAN Id will be used to form the flow key */
 	bool key_vlan;
+
+	bool ignore_icmp_errors;
 };
 
 /**********************************/
@@ -97,7 +99,9 @@ struct lfm_config_opts config = {
 	false,		/* ignore RFC1918 */
 	false,		/* TCP timewait */
 	false,		/* Expire short-lived UDP flows quickly */
-	false		/* Use VLAN Id as part of the flow key */
+	false,		/* Use VLAN Id as part of the flow key */
+	false,		/* Ignore ICMP errors that would otherwise expire a 
+			   flow */
 };
 
 /* Each flow has a unique ID number - it is set to the value of this variable
@@ -133,6 +137,9 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 			return 1;
 		case LFM_CONFIG_VLAN:
 			config.key_vlan = *(bool *)value;
+			return 1;
+		case LFM_CONFIG_IGNORE_ICMP_ERROR:
+			config.ignore_icmp_errors = *(bool *)value;
 			return 1;
 			
 	}
@@ -326,6 +333,9 @@ static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
  */
 static void icmp_error(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
 	Flow *orig_flow;
+
+	if (config.ignore_icmp_errors)
+		return;
 
 	orig_flow = icmp_find_original_flow(icmp_hdr, rem);
 	if (orig_flow == NULL)
