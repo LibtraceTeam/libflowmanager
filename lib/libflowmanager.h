@@ -56,7 +56,13 @@ typedef enum {
 	LFM_CONFIG_VLAN,
 
 	/* Ignore ICMP errors that would normally expire a flow immediately */
-	LFM_CONFIG_IGNORE_ICMP_ERROR
+	LFM_CONFIG_IGNORE_ICMP_ERROR,
+
+	/* handle IPv6 only */
+	LFM_CONFIG_DISABLE_IPV4,
+
+	/* handle IPv4 only */
+	LFM_CONFIG_DISABLE_IPV6
 		
 } lfm_config_t;
 
@@ -68,11 +74,21 @@ class FlowId {
         int cmp(const FlowId &b) const ;
 
 	/* The five tuple */
-        uint32_t ip_a;
-        uint32_t ip_b;
+	union {
+        	uint32_t ip4_a;
+		uint8_t ip6_a[16];
+	} ip_a;
+	union {
+        	uint32_t ip4_b;
+		uint8_t ip6_b[16];
+	} ip_b;
+
         uint16_t port_a;
         uint16_t port_b;
         uint8_t proto;
+
+	/* IP version, 4 or 6 */
+	uint8_t ip_v;
 
 	/* VLAN Id */
         uint16_t vlan;
@@ -86,18 +102,28 @@ class FlowId {
                         uint16_t port_dst, uint8_t protocol, uint16_t vlan,
 			uint32_t id);
 
+        FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
+                        uint16_t port_dst, uint8_t protocol, uint16_t vlan,
+			uint32_t id);
+
         bool operator<(const FlowId &b) const ;
 
 	/* Accessor functions */
         uint32_t get_id_num() const ;
-        char *get_server_ip_str() const ;
-        char *get_client_ip_str() const ;
+//        const char *get_server_ip_str() const ;
+//        const char *get_client_ip_str() const ;
+        void get_server_ip_str(char * ret) const ;
+        void get_client_ip_str(char * ret) const ;
+
         uint32_t get_server_ip() const ;
+        uint8_t * get_server_ip6() const ;
 	uint32_t get_client_ip() const ;
+	uint8_t * get_client_ip6() const ;
 	uint16_t get_server_port() const ;
         uint16_t get_client_port() const ;
 	uint16_t get_vlan_id() const ;
         uint8_t get_protocol() const ;
+        uint8_t get_ip_version() const ;
 
 };
 

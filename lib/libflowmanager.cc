@@ -58,6 +58,12 @@ struct lfm_config_opts {
 	bool key_vlan;
 
 	bool ignore_icmp_errors;
+
+	/* IPv6 Only */
+	bool disable_ipv4;
+
+	/* IPv4 Only */
+	bool disable_ipv6;
 };
 
 /**********************************/
@@ -102,6 +108,8 @@ struct lfm_config_opts config = {
 	false,		/* Use VLAN Id as part of the flow key */
 	false,		/* Ignore ICMP errors that would otherwise expire a 
 			   flow */
+	false,		/* IPv4 Only */
+	false		/* IPv6 Only */
 };
 
 /* Each flow has a unique ID number - it is set to the value of this variable
@@ -142,6 +150,12 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 			config.ignore_icmp_errors = *(bool *)value;
 			return 1;
 			
+		case LFM_CONFIG_DISABLE_IPV4:
+			config.disable_ipv4 = *(bool *)value;
+			return 1;
+		case LFM_CONFIG_DISABLE_IPV6:
+			config.disable_ipv6 = *(bool *)value;
+			return 1;
 	}
 	return 0;
 }
@@ -247,6 +261,29 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
 		return *((*i).second);
 }
 
+Flow *lfm_find_managed_flow6(uint8_t ip_a[16], uint8_t ip_b[16], uint16_t port_a, 
+		uint16_t port_b, uint8_t proto) {
+	
+	FlowId flow_id;
+
+	/* XXX: We always are going to use a vlan id of zero. At some
+	 * point this function should accept a vlan ID as a parameter */
+
+	if (trace_get_server_port(proto, port_a, port_b) == USE_SOURCE) {
+		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0);
+	} else {
+		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0);
+	}
+	FlowMap::iterator i = active_flows.find(flow_id);
+
+	if (i == active_flows.end()) {
+		/* Not in the map */
+		return NULL;
+	}
+	else 
+		return *((*i).second);
+}
+
 /* Parses an ICMP error message to find the flow that originally triggered
  * the error.
  *
@@ -261,8 +298,10 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
  */
 static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
         libtrace_ip_t *orig_ip;
+	libtrace_ip6_t *orig_ip6 = NULL;
         uint16_t src_port, dst_port;
         uint32_t src_ip, dst_ip;
+	uint8_t src_ip6[16], dst_ip6[16];
         uint8_t proto;
         Flow *orig_flow;
         void *post_ip;
@@ -278,16 +317,25 @@ static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
         if (orig_ip == NULL) {
                 return NULL;
         }
+	if(orig_ip->ip_v == 6)
+		orig_ip6 = (libtrace_ip6_t*)orig_ip;
 
 	/* XXX Should be more robust about ensuring we have a full IP header
 	 * here - otherwise it will segfault all over the place */
 
 	/* Get the IP addresses and transport protocol */
-        src_ip = orig_ip->ip_src.s_addr;
-        dst_ip = orig_ip->ip_dst.s_addr;
-        proto = orig_ip->ip_p;
-        rem -= (orig_ip->ip_hl * 4);
-        post_ip = (char *)orig_ip + (orig_ip->ip_hl * 4);
+	if(orig_ip6) {
+		memcpy(src_ip6, orig_ip6->ip_src.s6_addr, sizeof(src_ip6));
+		memcpy(dst_ip6, orig_ip6->ip_dst.s6_addr, sizeof(dst_ip6));
+		rem -= sizeof(libtrace_icmp_t);
+		post_ip = trace_get_payload_from_ip6(orig_ip6, &proto, &rem);
+	} else {
+		src_ip = orig_ip->ip_src.s_addr;
+		dst_ip = orig_ip->ip_dst.s_addr;
+		proto = orig_ip->ip_p;
+		rem -= (orig_ip->ip_hl * 4);
+		post_ip = (char *)orig_ip + (orig_ip->ip_hl * 4);
+	}
 
 	/* Now try to get port numbers out of any remaining payload */
         if (proto == 6) {
@@ -311,8 +359,12 @@ static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
         }
 
 	/* We have the 5-tuple, can we find the flow? */
-        orig_flow = lfm_find_managed_flow(src_ip, dst_ip, src_port, dst_port,
-                        proto);
+	if(orig_ip6)
+		orig_flow = lfm_find_managed_flow6(src_ip6, dst_ip6, src_port,
+						dst_port, proto);
+	else
+        	orig_flow = lfm_find_managed_flow(src_ip, dst_ip, src_port, dst_port,
+               				         proto);
 
         /* Couldn't find the original flow! */
         if (orig_flow == NULL) {
@@ -445,20 +497,33 @@ static uint16_t extract_vlan_id(libtrace_packet_t *packet) {
 Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
 		bool *is_new_flow) {
 	uint16_t src_port, dst_port;
+	uint8_t trans_proto;
 	libtrace_ip_t *ip;
+	libtrace_ip6_t *ip6 = NULL;
         FlowId pkt_id;
         Flow *new_conn;
 	ExpireList *exp_list;
 	uint16_t l3_type;
 	uint32_t pkt_left = 0;
+	uint32_t rem;
 	uint16_t vlan_id = 0;
 	
         ip = (libtrace_ip_t *)trace_get_layer3(packet, &l3_type, &pkt_left);
 	if (ip == NULL)
 		return NULL;
+	if(ip->ip_v == 6) {
+		if(config.disable_ipv6)
+			return NULL;
+		ip6 = (libtrace_ip6_t*)ip;
+	} else {
+		if(config.disable_ipv4)
+			return NULL;
+	}
 
+	trace_get_transport(packet, &trans_proto, &rem);
+	
 	/* For now, deal with IPv4 only */
-	if (l3_type != 0x0800) return NULL;
+	if (l3_type != 0x0800 && l3_type != 0x86DD) return NULL;
 	
 	/* If the VLAN key option is set, we'll need the VLAN id */
 	if (config.key_vlan)
@@ -469,38 +534,56 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
         dst_port = trace_get_destination_port(packet);
 	
 	/* Ignore any RFC1918 addresses, if requested */
-	if (config.ignore_rfc1918 && rfc1918_ip(ip)) {
+	if (l3_type == 0x0800 && config.ignore_rfc1918 && rfc1918_ip(ip)) {
 		return NULL;
 	}
 
 	/* Fragmented TCP and UDP packets will have port numbers of zero. We
 	 * don't do fragment reassembly, so we will want to ignore them.
 	 */
-	if (src_port == 0 && dst_port == 0 && (ip->ip_p == 6 || ip->ip_p == 17))
+	if (src_port == 0 && dst_port == 0 && (trans_proto == 6 || trans_proto == 17))
 		return NULL;
 
 	/* Generate the flow key for this packet */
 	
 	/* Force ICMP flows to have port numbers of zero, rather than
 	 * whatever random values trace_get_X_port might give us */
-	if (ip->ip_p == 1 && dir == 0) {
-		pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
-				0, 0, ip->ip_p, vlan_id, next_conn_id);
+	if (trans_proto == 1 && dir == 0) {
+		if(ip6) 
+			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
+					0, 0, trans_proto, vlan_id, next_conn_id);
+		else	
+			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
+					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	} else if (ip->ip_p == 1) {
-		pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
-				0, 0, ip->ip_p, vlan_id, next_conn_id);
+		if(ip6)
+			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
+					0, 0, trans_proto, vlan_id, next_conn_id);
+		else
+			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
+					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	}
 	
 	else if (trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE) {
                 /* Server port = source port */
-                pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
-                                        src_port, dst_port, ip->ip_p,
-                                        vlan_id, next_conn_id);
+		if(ip6)
+			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
+						src_port, dst_port, trans_proto,
+						vlan_id, next_conn_id);
+		else
+			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
+						src_port, dst_port, ip->ip_p,
+						vlan_id, next_conn_id);
         } else {
                 /* Server port = dest port */
-                pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
-                                        dst_port, src_port, ip->ip_p,
-                                        vlan_id, next_conn_id);
+		if(ip6)
+			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
+						dst_port, src_port, trans_proto,
+						vlan_id, next_conn_id);
+		else
+			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
+						dst_port, src_port, ip->ip_p,
+						vlan_id, next_conn_id);
         }
 
 	
@@ -513,16 +596,16 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		Flow *pkt_conn = *((*i).second);
 		
 		/* Update UDP "state" */
-		if (ip->ip_p == 17) 
+		if (trans_proto == 17) 
 			update_udp_state(pkt_conn, dir);
 		
 		*is_new_flow = false;
 		return pkt_conn;
 	}
-
+	
 	/* If we reach this point, we must be dealing with a new flow */
 
-	if (ip->ip_p == 6) {
+	if (trans_proto == 6) {
 		/* TCP */
 		libtrace_tcp_t *tcp = trace_get_tcp(packet);
 		
@@ -543,11 +626,15 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		exp_list = &expire_tcp_syn;
 	} 
 	
-	else if (ip->ip_p == 1) {
+	else if (trans_proto == 1) {
 		/* ICMP */
 		libtrace_icmp_t *icmp_hdr;
-		icmp_hdr = (libtrace_icmp_t *)trace_get_payload_from_ip(ip,
-			 	NULL, &pkt_left);
+		if(ip6)
+			icmp_hdr = (libtrace_icmp_t *)trace_get_payload_from_ip6(ip6,
+					NULL, &pkt_left);
+		else
+			icmp_hdr = (libtrace_icmp_t *)trace_get_payload_from_ip(ip,
+					NULL, &pkt_left);
 		
 		if (!icmp_hdr)
 			return NULL;
@@ -579,7 +666,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		/* We don't have handy things like SYN flags to 
 		 * mark the beginning of UDP connections */
 		new_conn = new Flow(pkt_id);
-		if (ip->ip_p == 17) {
+		if (trans_proto == 17) {
 			/* UDP */
 			
 			
@@ -696,9 +783,6 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 		flow->saw_rst = true;
 		flow->flow_state = FLOW_STATE_RESET;
 	}
-			
-		
-	
 }
 
 /* Updates the timeout for a Flow.
