@@ -317,17 +317,20 @@ static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
         if (orig_ip == NULL) {
                 return NULL;
         }
-	if(orig_ip->ip_v == 6)
+	if(orig_ip->ip_v == 6) {
+		if (rem < sizeof(libtrace_ip6_t))
+			return NULL;
 		orig_ip6 = (libtrace_ip6_t*)orig_ip;
-
-	/* XXX Should be more robust about ensuring we have a full IP header
-	 * here - otherwise it will segfault all over the place */
+	} else {
+		if (rem < sizeof(libtrace_ip_t))
+			return NULL;
+	}
 
 	/* Get the IP addresses and transport protocol */
 	if(orig_ip6) {
 		memcpy(src_ip6, orig_ip6->ip_src.s6_addr, sizeof(src_ip6));
 		memcpy(dst_ip6, orig_ip6->ip_dst.s6_addr, sizeof(dst_ip6));
-		rem -= sizeof(libtrace_icmp_t);
+		//rem -= sizeof(libtrace_icmp_t);
 		post_ip = trace_get_payload_from_ip6(orig_ip6, &proto, &rem);
 	} else {
 		src_ip = orig_ip->ip_src.s_addr;
@@ -497,7 +500,7 @@ static uint16_t extract_vlan_id(libtrace_packet_t *packet) {
 Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
 		bool *is_new_flow) {
 	uint16_t src_port, dst_port;
-	uint8_t trans_proto;
+	uint8_t trans_proto = 0;
 	libtrace_ip_t *ip;
 	libtrace_ip6_t *ip6 = NULL;
         FlowId pkt_id;
@@ -530,6 +533,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		vlan_id = extract_vlan_id(packet);
 	
 	/* Get port numbers for our 5-tuple */
+	src_port = dst_port = 0;
 	src_port = trace_get_source_port(packet);
         dst_port = trace_get_destination_port(packet);
 	
@@ -564,7 +568,8 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	}
 	
-	else if (trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE) {
+	else if ((src_port == dst_port && dir == 1) || (src_port != dst_port &&
+			trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE)) {
                 /* Server port = source port */
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
@@ -758,8 +763,11 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 		 * state (note that we do not wait for the final ACK in the
 		 * 3-way handshake). */
 
-		if (flow->dir_info[0].saw_syn && flow->dir_info[1].saw_syn)
-			flow->flow_state = FLOW_STATE_ESTAB;
+		if (flow->dir_info[0].saw_syn && flow->dir_info[1].saw_syn) {
+			/* Make sure this is a SYN ACK before shifting state */
+			if (tcp->ack)
+				flow->flow_state = FLOW_STATE_ESTAB;
+		}
 
 		/* A SYN in only one direction puts us in the TCP Connection
 		 * Establishment state, i.e. the handshake */
