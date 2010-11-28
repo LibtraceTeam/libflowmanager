@@ -1,0 +1,17 @@
+Version 2.0.0
+-------------
+ * Added support for IPv6 flows
+ * Slight API change - get_client_ip_str() and get_server_ip_str() functions
+   for the flow ID now take a pointer to a string as a parameter, which is 
+   updated to contain the IP address string. Previously, a static string was
+   created and returned by these functions, which created a "use it or lose 
+   it" scenario.
+ * Fixed bug where a TCP flow was treated as established without seeing a SYN
+   ACK
+ * Fixed bug when the source and destination ports match
+ * Restructured source code directories
+ * Flows in the TCP half-close state now expire after only 4 minutes
+ * UDP flows now expire after 2 minutes rather than 2 mins 20 secs
+ * Added example program that demonstrates how the API should be used
+ * Linking against C++ programs should now work properly.
+ * Fixed bug with the DirectionInfo destructor.

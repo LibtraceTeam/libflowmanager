@@ -53,10 +53,6 @@
 
 #include "tcp_reorder.h"
 
-#define UINT32_MAX 0xffffffffUL
-
-
-
 /* Compares two sequence numbers, dealing appropriate with wrapping.
  *
  * Parameters:
