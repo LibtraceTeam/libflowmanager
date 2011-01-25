@@ -62,7 +62,9 @@ typedef enum {
 	LFM_CONFIG_DISABLE_IPV4,
 
 	/* handle IPv4 only */
-	LFM_CONFIG_DISABLE_IPV6
+	LFM_CONFIG_DISABLE_IPV6,
+	
+	LFM_CONFIG_TCP_ANYSTART
 		
 } lfm_config_t;
 
@@ -158,7 +160,11 @@ typedef enum {
 	FLOW_STATE_UDPLONG,
 
 	/* Flow experienced an ICMP error */
-	FLOW_STATE_ICMPERROR
+	FLOW_STATE_ICMPERROR,
+
+
+	/* A flow starting on any packet */
+	FLOW_STATE_ANYSTART
 } flow_state_t;
 
 /* Data that must be stored separately for each half of the flow */

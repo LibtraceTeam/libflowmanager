@@ -65,6 +65,9 @@ struct lfm_config_opts {
 
 	/* IPv4 Only */
 	bool disable_ipv6;
+
+	/* Create new tcp flows even if they're not SYNs */
+	bool tcp_anystart;
 };
 
 /**********************************/
@@ -96,6 +99,9 @@ ExpireList expire_udpshort;
 /* LRU for all flows that met an instant expiry condition, e.g. TCP RST */
 ExpireList expired_flows;
 
+/* LRU for TCP flows starting with anything*/
+ExpireList expire_tcp_anystart;
+
 /****************************************/
 
 /* Map containing all flows that are present in one of the LRUs */
@@ -110,7 +116,8 @@ struct lfm_config_opts config = {
 	false,		/* Ignore ICMP errors that would otherwise expire a 
 			   flow */
 	false,		/* IPv4 Only */
-	false		/* IPv6 Only */
+	false,		/* IPv6 Only */
+	false           /* start tcp flows on anything, not just SYNs */
 };
 
 /* Each flow has a unique ID number - it is set to the value of this variable
@@ -156,6 +163,9 @@ int lfm_set_config_option(lfm_config_t opt, void *value) {
 			return 1;
 		case LFM_CONFIG_DISABLE_IPV6:
 			config.disable_ipv6 = *(bool *)value;
+			return 1;
+		case LFM_CONFIG_TCP_ANYSTART:
+			config.tcp_anystart = *(bool *)value;
 			return 1;
 	}
 	return 0;
@@ -618,20 +628,30 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		/* TCP Flows must begin with a SYN */
 		if (!tcp)
 			return NULL;
+		
+		if(!config.tcp_anystart) {
 			
-		if (!tcp->syn)
-			return NULL;
+			if (!tcp->syn)
+				return NULL;
+			
+			/* Avoid creating a flow based on the SYN ACK */
+			if (tcp->ack)
+				return NULL;
+			
+			/* Create new TCP flow */
+			new_conn = new Flow(pkt_id);
+			new_conn->flow_state = FLOW_STATE_NEW;
+			exp_list = &expire_tcp_syn;
+		} 
 		
-		/* Avoid creating a flow based on the SYN ACK */
-		if (tcp->ack)
-			return NULL;
+		else {
+			/* Create new TCP flow */
+			new_conn = new Flow(pkt_id);
+			new_conn->flow_state = FLOW_STATE_ANYSTART;
+			exp_list = &expire_tcp_anystart;
+		}
+	}
 		
-		/* Create new TCP flow */
-		new_conn = new Flow(pkt_id);
-		new_conn->flow_state = FLOW_STATE_NEW;
-		exp_list = &expire_tcp_syn;
-	} 
-	
 	else if (trans_proto == 1) {
 		/* ICMP */
 		libtrace_icmp_t *icmp_hdr;
@@ -739,7 +759,7 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
 
 	if (dir >= 2)
 		return;
-	
+
 	if (tcp->fin) {
 		flow->dir_info[dir].saw_fin = true;
 		
@@ -867,6 +887,12 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 				exp_list = &expired_flows;
 			}
 			break;
+			
+	        case FLOW_STATE_ANYSTART:
+			/* expire them in two minutes unless they transition into a proper state */
+			flow->expire_time = ts + 120.0;
+			exp_list = &expire_tcp_anystart;
+			break;
 				
 				
 	}
@@ -956,6 +982,10 @@ Flow *lfm_expire_next_flow(double ts, bool force) {
 		return exp_flow;
 
 	exp_flow = get_next_expired(&expire_udpshort, ts, force);
+	if (exp_flow != NULL)
+		return exp_flow;
+
+	exp_flow = get_next_expired(&expire_tcp_anystart, ts, force);
 	if (exp_flow != NULL)
 		return exp_flow;
 
