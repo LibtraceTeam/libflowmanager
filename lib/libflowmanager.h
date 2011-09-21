@@ -95,23 +95,23 @@ class FlowId {
 	/* VLAN Id */
         uint16_t vlan;
 	/* Unique flow ID number */
-	uint32_t id_num;
+	uint64_t id_num;
 
         public:
         FlowId();
 
         FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
                         uint16_t port_dst, uint8_t protocol, uint16_t vlan,
-			uint32_t id);
+			uint64_t id);
 
         FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
                         uint16_t port_dst, uint8_t protocol, uint16_t vlan,
-			uint32_t id);
+			uint64_t id);
 
         bool operator<(const FlowId &b) const ;
 
 	/* Accessor functions */
-        uint32_t get_id_num() const ;
+        uint64_t get_id_num() const ;
 //        const char *get_server_ip_str() const ;
 //        const char *get_client_ip_str() const ;
         void get_server_ip_str(char * ret) const ;

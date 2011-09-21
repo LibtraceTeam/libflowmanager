@@ -122,7 +122,7 @@ struct lfm_config_opts config = {
 
 /* Each flow has a unique ID number - it is set to the value of this variable
  * when created and next_conn_id is incremented */
-static int next_conn_id = 0;
+static uint64_t next_conn_id = 0;
 
 
 
@@ -579,8 +579,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	}
 	
-	else if ((src_port == dst_port && dir == 1) || (src_port != dst_port &&
-			trace_get_server_port(ip->ip_p, src_port, dst_port) == USE_SOURCE)) {
+	else if (dir == 1) {
                 /* Server port = source port */
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
@@ -897,17 +896,19 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 				
 	}
 
+	FlowMap::iterator i = active_flows.find(flow->id);
+
 	assert(exp_list);
 
 	/* Remove the flow from its current position in an LRU */
-	flow->expire_list->erase(active_flows[flow->id]);
+	flow->expire_list->erase(i->second);
 
 	/* Push it onto its new LRU */
 	flow->expire_list = exp_list;
 	exp_list->push_front(flow);
 
 	/* Update the entry in the flow map */
-	active_flows[flow->id] = exp_list->begin();
+	i->second = exp_list->begin();
 	
 }
 

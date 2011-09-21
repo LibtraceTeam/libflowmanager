@@ -54,7 +54,7 @@ FlowId::FlowId() {
  * flow key */
 FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
-		uint32_t id) {
+		uint64_t id) {
 	ip_a.ip4_a = ip_src;
 	ip_b.ip4_b = ip_dst;
 	port_a = port_src;
@@ -67,7 +67,7 @@ FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 
 FlowId::FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
 		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
-		uint32_t id) {
+		uint64_t id) {
 	memcpy(ip_a.ip6_a, ip_src, sizeof(ip_a.ip6_a));
 	memcpy(ip_b.ip6_b, ip_dst, sizeof(ip_b.ip6_b));
 	port_a = port_src;
@@ -119,7 +119,7 @@ uint16_t FlowId::get_vlan_id() const {
 	return vlan;
 }
 
-uint32_t FlowId::get_id_num() const {
+uint64_t FlowId::get_id_num() const {
 	return id_num;
 }
 
@@ -173,7 +173,7 @@ uint8_t* FlowId::get_server_ip6() const {
 
 uint32_t FlowId::get_client_ip() const {
 	if(ip_v == 6)
-		return 6;
+		return 0;
 	return ip_b.ip4_b;
 }
 
