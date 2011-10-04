@@ -1,3 +1,26 @@
+Version 2.0.2
+-------------
+ * Added a new config option (LFM_OPTION_TCP_ANYSTART) which will enable the
+   creation of TCP flows for non-SYN packets. These new flows will begin with
+   a 120 sec timeout, but will become established if a second packet is
+   observed for the flow.
+ * Improved performance by reducing the number of map lookups per packet.
+ * Client / Server is now determined based on packet direction rather than the
+   return value of trace_get_server_port(). This is a more consistent and 
+   simple approach than before, but may result in a lot of client/server swaps
+   when comparing new results against results generated with an older version
+   of libprotoident.
+ * Flow Id numbers are now 64 bit values.
+ * Fixed bug where get_client_ip() would return an inappropriate value for an
+   IPv6 flow.
+ * Fixed a compilation problem with newer versions of gcc.
+
+Version 2.0.1
+-------------
+
+ * Version only used internally within WAND.
+
+
 Version 2.0.0
 -------------
  * Added support for IPv6 flows
