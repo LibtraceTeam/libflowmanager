@@ -65,7 +65,7 @@ typedef enum {
 	LFM_CONFIG_DISABLE_IPV6,
 	
 	LFM_CONFIG_TCP_ANYSTART
-		
+
 } lfm_config_t;
 
 /* We just use a standard 5-tuple as a flow key (with rudimentary support for

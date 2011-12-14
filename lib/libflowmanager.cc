@@ -565,17 +565,17 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	 * whatever random values trace_get_X_port might give us */
 	if (trans_proto == 1 && dir == 0) {
 		if(ip6) 
-			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
+			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
 					0, 0, trans_proto, vlan_id, next_conn_id);
 		else	
-			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
+			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
 					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	} else if (ip->ip_p == 1) {
 		if(ip6)
-			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
+			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
 					0, 0, trans_proto, vlan_id, next_conn_id);
 		else
-			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
+			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
 					0, 0, ip->ip_p, vlan_id, next_conn_id);
 	}
 	
