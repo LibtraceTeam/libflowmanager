@@ -30,6 +30,9 @@
 #ifndef LIBFLOWMANAGER_H_
 #define LIBFLOWMANAGER_H_
 
+#include <stdio.h>
+
+/* #include <unordered_map> */
 #include <map>
 #include <list>
 #include <inttypes.h>
@@ -73,7 +76,6 @@ typedef enum {
 /* XXX: Consider expanding this to support mac addresses as well */
 class FlowId {
         private:
-        int cmp(const FlowId &b) const ;
 
 	/* The five tuple */
 	union {
@@ -97,18 +99,21 @@ class FlowId {
 	/* Unique flow ID number */
 	uint64_t id_num;
 
+	uint8_t init_dir;
+
         public:
         FlowId();
 
         FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
                         uint16_t port_dst, uint8_t protocol, uint16_t vlan,
-			uint64_t id);
+			uint64_t id, uint8_t dir);
 
         FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
                         uint16_t port_dst, uint8_t protocol, uint16_t vlan,
-			uint64_t id);
+			uint64_t id, uint8_t dir);
 
         bool operator<(const FlowId &b) const ;
+	bool operator==(const FlowId &b) const;
 
 	/* Accessor functions */
         uint64_t get_id_num() const ;
@@ -121,8 +126,14 @@ class FlowId {
         uint8_t * get_server_ip6() const ;
 	uint32_t get_client_ip() const ;
 	uint8_t * get_client_ip6() const ;
+	uint32_t get_local_ip() const;
+	uint8_t * get_local_ip6() const;
+	uint32_t get_external_ip() const;
+	uint8_t * get_external_ip6() const;
 	uint16_t get_server_port() const ;
         uint16_t get_client_port() const ;
+	uint16_t get_local_port() const;
+	uint16_t get_external_port() const;
 	uint16_t get_vlan_id() const ;
         uint8_t get_protocol() const ;
         uint8_t get_ip_version() const ;
@@ -215,6 +226,30 @@ class Flow {
 		/* Constructor */
 		Flow(const FlowId conn_id);
 };
+
+struct flowid_hash {
+	size_t operator()(const FlowId &x) const{
+		uint64_t key = 0;
+		if (x.get_ip_version() == 4) {
+			key = ((uint64_t)x.get_server_ip());
+			key += ((uint64_t)x.get_client_ip());
+			key *= ((uint64_t)x.get_server_port());
+			key *= ((uint64_t)x.get_client_port());
+		} else {
+			key = x.get_server_port(); 
+			key *= 0xc4ceb9fe1a85ec53;
+			key += x.get_client_port();
+		}
+		
+
+		//fprintf(stdout, "%lu %d\n", x.get_id_num(), (size_t)key);	
+		return (size_t)key;
+	}
+};
+
+/* Tried unordered map but it is surprisingly slow compared to a regular map */
+//typedef std::unordered_map<FlowId, ExpireList::iterator, flowid_hash> FlowMap;
+
 
 
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;

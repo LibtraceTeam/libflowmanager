@@ -258,9 +258,9 @@ Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
 	 * point this function should accept a vlan ID as a parameter */
 
 	if (trace_get_server_port(proto, port_a, port_b) == USE_SOURCE) {
-		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0);
+		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0, 0);
 	} else {
-		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0);
+		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0, 0);
 	}
 	FlowMap::iterator i = active_flows.find(flow_id);
 
@@ -281,9 +281,9 @@ Flow *lfm_find_managed_flow6(uint8_t ip_a[16], uint8_t ip_b[16], uint16_t port_a
 	 * point this function should accept a vlan ID as a parameter */
 
 	if (trace_get_server_port(proto, port_a, port_b) == USE_SOURCE) {
-		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0);
+		flow_id = FlowId(ip_a, ip_b, port_a, port_b, 0, proto, 0, 0);
 	} else {
-		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0);
+		flow_id = FlowId(ip_b, ip_a, port_b, port_a, 0, proto, 0, 0);
 	}
 	FlowMap::iterator i = active_flows.find(flow_id);
 
@@ -566,17 +566,19 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	if (trans_proto == 1 && dir == 0) {
 		if(ip6) 
 			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
-					0, 0, trans_proto, vlan_id, next_conn_id);
+					0, 0, trans_proto, vlan_id, next_conn_id, dir);
 		else	
 			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
-					0, 0, ip->ip_p, vlan_id, next_conn_id);
+					0, 0, ip->ip_p, vlan_id, next_conn_id,
+					dir);
 	} else if (ip->ip_p == 1) {
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
-					0, 0, trans_proto, vlan_id, next_conn_id);
+					0, 0, trans_proto, vlan_id, next_conn_id, dir);
 		else
 			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
-					0, 0, ip->ip_p, vlan_id, next_conn_id);
+					0, 0, ip->ip_p, vlan_id, next_conn_id,
+					dir);
 	}
 	
 	else if (dir == 1) {
@@ -584,21 +586,21 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
 						src_port, dst_port, trans_proto,
-						vlan_id, next_conn_id);
+						vlan_id, next_conn_id, dir);
 		else
 			pkt_id = FlowId(ip->ip_src.s_addr, ip->ip_dst.s_addr,
 						src_port, dst_port, ip->ip_p,
-						vlan_id, next_conn_id);
+						vlan_id, next_conn_id, dir);
         } else {
                 /* Server port = dest port */
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_dst.s6_addr, ip6->ip_src.s6_addr,
 						dst_port, src_port, trans_proto,
-						vlan_id, next_conn_id);
+						vlan_id, next_conn_id, dir);
 		else
 			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
 						dst_port, src_port, ip->ip_p,
-						vlan_id, next_conn_id);
+						vlan_id, next_conn_id, dir);
         }
 
 	

@@ -48,13 +48,14 @@ FlowId::FlowId() {
 	vlan = 0;
 	id_num = 0;
 	ip_v = 4;
+	init_dir = 0;
 }
 
 /* A more useful constructor where we're provided with the values for the
  * flow key */
 FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
-		uint64_t id) {
+		uint64_t id, uint8_t dir) {
 	ip_a.ip4_a = ip_src;
 	ip_b.ip4_b = ip_dst;
 	port_a = port_src;
@@ -63,11 +64,12 @@ FlowId::FlowId(uint32_t ip_src, uint32_t ip_dst, uint16_t port_src,
 	vlan = vlan_id;
 	id_num = id;
 	ip_v = 4;
+	init_dir = dir;
 }
 
 FlowId::FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
 		uint16_t port_dst, uint8_t protocol, uint16_t vlan_id,
-		uint64_t id) {
+		uint64_t id, uint8_t dir) {
 	memcpy(ip_a.ip6_a, ip_src, sizeof(ip_a.ip6_a));
 	memcpy(ip_b.ip6_b, ip_dst, sizeof(ip_b.ip6_b));
 	port_a = port_src;
@@ -76,8 +78,39 @@ FlowId::FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
 	vlan = vlan_id;
 	id_num = id;
 	ip_v = 6;
+	init_dir = dir;
 }
 
+bool FlowId::operator==(const FlowId &b) const {
+	if (port_b != b.port_b)
+		return false;
+	if (port_a != b.port_a)
+		return false;
+	if (ip_v != b.ip_v)
+		return false;
+	
+	if(ip_v == 6) {
+		int i;
+		for(i=0;i<16;i++) {
+			if(ip_a.ip6_a[i] != b.ip_a.ip6_a[i])
+				return false;
+		}
+		for(i=0;i<16;i++) {
+			if(ip_b.ip6_b[i] != b.ip_b.ip6_b[i])
+				return false;
+		}
+	} else {
+		if (ip_b.ip4_b != b.ip_b.ip4_b)
+			return false;
+
+		if (ip_a.ip4_a != b.ip_a.ip4_a)
+			return false;
+	}
+	if (vlan != b.vlan)
+		return false;
+	
+	return proto == b.proto;
+}
 
 /* 'less-than' operator for comparing Flow Ids */
 bool FlowId::operator<(const FlowId &b) const {
@@ -127,7 +160,10 @@ uint64_t FlowId::get_id_num() const {
 void FlowId::get_server_ip_str(char * ret) const {
 	if(ip_v == 4) {
 		struct in_addr inp;
-		inp.s_addr = ip_a.ip4_a;
+		if (init_dir == 0)
+			inp.s_addr = ip_a.ip4_a;
+		else
+			inp.s_addr = ip_b.ip4_b;
 
 		/* NOTE: the returned string is statically allocated - use it
 		 * or lose it! */
@@ -135,7 +171,11 @@ void FlowId::get_server_ip_str(char * ret) const {
 		return;
 	} else {
 		struct in6_addr inp;
-		memcpy(inp.s6_addr, ip_a.ip6_a, sizeof(ip_a.ip6_a));
+		if (init_dir == 0)
+			memcpy(inp.s6_addr, ip_a.ip6_a, sizeof(ip_a.ip6_a));
+		else
+			memcpy(inp.s6_addr, ip_b.ip6_b, sizeof(ip_b.ip6_b));
+
 		inet_ntop(AF_INET6, &inp, ret, INET6_ADDRSTRLEN);
 		return;
 	}
@@ -147,13 +187,20 @@ void FlowId::get_client_ip_str(char * ret) const {
 		return;
 	if(ip_v == 4) {
 		struct in_addr inp;
-		inp.s_addr = ip_b.ip4_b;
+		if (init_dir == 0)
+			inp.s_addr = ip_b.ip4_b;
+		else
+			inp.s_addr = ip_a.ip4_a;
 		/* NOTE: the returned string is statically allocated - use it
 		 * or lose it! */
 		strcpy(ret, inet_ntoa(inp));
 	} else {
 		struct in6_addr inp;
-		memcpy(inp.s6_addr, ip_b.ip6_b, sizeof(ip_b.ip6_b));
+		if (init_dir == 0)
+			memcpy(inp.s6_addr, ip_b.ip6_b, sizeof(ip_b.ip6_b));
+		else
+			memcpy(inp.s6_addr, ip_a.ip6_a, sizeof(ip_a.ip6_a));
+
 		inet_ntop(AF_INET6, &inp, ret, INET6_ADDRSTRLEN);
 		return;
 	}
@@ -162,33 +209,77 @@ void FlowId::get_client_ip_str(char * ret) const {
 uint32_t FlowId::get_server_ip() const {
 	if(ip_v == 6)
 		return 0;
+	if (init_dir == 0)
+		return ip_a.ip4_a;
+	return ip_b.ip4_b;
+}
+
+uint32_t FlowId::get_local_ip() const {
+	if(ip_v == 6)
+		return 0;
+	return ip_b.ip4_b;
+}
+
+uint32_t FlowId::get_external_ip() const {
+	if(ip_v == 6)
+		return 0;
 	return ip_a.ip4_a;
 }
 
 uint8_t* FlowId::get_server_ip6() const {
 	if(ip_v == 4)
 		return 0;
-	return (uint8_t*)ip_a.ip6_a;
+	if (init_dir == 0)
+		return (uint8_t*)ip_a.ip6_a;
+	return (uint8_t *)ip_b.ip6_b;
+}
+
+uint8_t* FlowId::get_local_ip6() const {
+	if(ip_v == 4)
+		return 0;
+	return (uint8_t *)ip_b.ip6_b;
+}
+
+uint8_t* FlowId::get_external_ip6() const {
+	if(ip_v == 4)
+		return 0;
+	return (uint8_t *)ip_a.ip6_a;
 }
 
 uint32_t FlowId::get_client_ip() const {
 	if(ip_v == 6)
 		return 0;
-	return ip_b.ip4_b;
+	if (init_dir == 0)
+		return ip_b.ip4_b;
+	return ip_a.ip4_a;
 }
 
 uint8_t* FlowId::get_client_ip6() const {
 	if(ip_v == 4)
 		return 0;
-	return (uint8_t*)ip_b.ip6_b;
+	if (init_dir == 0)
+		return (uint8_t*)ip_b.ip6_b;
+	return (uint8_t *)ip_a.ip6_a;
 }
 
 uint16_t FlowId::get_server_port() const {
+	if (init_dir == 0)
+		return port_a;
+	return port_b;
+}
+
+uint16_t FlowId::get_local_port() const {
+	return port_b;
+}
+
+uint16_t FlowId::get_external_port() const {
 	return port_a;
 }
 
 uint16_t FlowId::get_client_port() const {
-	return port_b;
+	if (init_dir == 0)
+		return port_b;
+	return port_a;
 }
 
 uint8_t FlowId::get_protocol() const {
@@ -198,3 +289,4 @@ uint8_t FlowId::get_protocol() const {
 uint8_t FlowId::get_ip_version()  const {
 	return ip_v;
 }
+
