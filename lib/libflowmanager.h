@@ -117,8 +117,6 @@ class FlowId {
 
 	/* Accessor functions */
         uint64_t get_id_num() const ;
-//        const char *get_server_ip_str() const ;
-//        const char *get_client_ip_str() const ;
         void get_server_ip_str(char * ret) const ;
         void get_client_ip_str(char * ret) const ;
 

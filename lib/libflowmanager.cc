@@ -341,7 +341,6 @@ static Flow *icmp_find_original_flow(libtrace_icmp_t *icmp_hdr, uint32_t rem) {
 	if(orig_ip6) {
 		memcpy(src_ip6, orig_ip6->ip_src.s6_addr, sizeof(src_ip6));
 		memcpy(dst_ip6, orig_ip6->ip_dst.s6_addr, sizeof(dst_ip6));
-		//rem -= sizeof(libtrace_icmp_t);
 		post_ip = trace_get_payload_from_ip6(orig_ip6, &proto, &rem);
 	} else {
 		src_ip = orig_ip->ip_src.s_addr;

@@ -82,6 +82,22 @@ Libflowmanager API Notes
     direction because a) trace_get_direction() only works for some trace
     formats and b) the user may want to define direction differently anyway.
 
+  * When accessing the IP addresses and ports from the flow Id, you now have
+    two options. You can use the get_server_* and get_client_* API functions
+    which have been present in previous versions of libflowmanager or you can
+    use the get_local_* and get_external_* API functions which were newly 
+    added in 2.0.3.
+
+    In this context, we use the following definitions:
+    	server - the host that was connected to when the flow first began, i.e.
+		 the recipient of the first packet.
+	client - the host that initiated the flow, i.e. the sender of the first
+		 packet.
+	local - the host that is the transmitter of "outgoing" packets, where
+		outgoing is defined as having a direction value of 0.
+	external - the host that is the transmitter of "incoming" packets,
+		   where incoming is defined as having a direction value of 1.
+
 TCP Reordering API Notes
 ========================
 
