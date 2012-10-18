@@ -511,7 +511,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		bool *is_new_flow) {
 	uint16_t src_port, dst_port;
 	uint8_t trans_proto = 0;
-	libtrace_ip_t *ip;
+	libtrace_ip_t *ip = NULL;
 	libtrace_ip6_t *ip6 = NULL;
         FlowId pkt_id;
         Flow *new_conn;
@@ -528,6 +528,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		if(config.disable_ipv6)
 			return NULL;
 		ip6 = (libtrace_ip6_t*)ip;
+		ip = NULL;
 	} else {
 		if(config.disable_ipv4)
 			return NULL;
@@ -570,7 +571,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 			pkt_id = FlowId(ip->ip_dst.s_addr, ip->ip_src.s_addr,
 					0, 0, ip->ip_p, vlan_id, next_conn_id,
 					dir);
-	} else if (ip->ip_p == 1) {
+	} else if (trans_proto == 1) {
 		if(ip6)
 			pkt_id = FlowId(ip6->ip_src.s6_addr, ip6->ip_dst.s6_addr,
 					0, 0, trans_proto, vlan_id, next_conn_id, dir);
@@ -695,7 +696,6 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		if (trans_proto == 17) {
 			/* UDP */
 			
-			
 			if (dir == 0)
 				new_conn->saw_outbound = true;
 
@@ -724,7 +724,7 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	 * handy */
 	if (dir < 2 && new_conn->dir_info[dir].first_pkt_ts == 0.0) 
 		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
-	
+
 	/* Append our new flow to the appropriate LRU */
 	new_conn->expire_list = exp_list;
 	exp_list->push_front(new_conn);
@@ -898,7 +898,6 @@ void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
 	}
 
 	FlowMap::iterator i = active_flows.find(flow->id);
-
 	assert(exp_list);
 
 	/* Remove the flow from its current position in an LRU */

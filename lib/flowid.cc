@@ -79,6 +79,20 @@ FlowId::FlowId(uint8_t ip_src[16], uint8_t ip_dst[16], uint16_t port_src,
 	id_num = id;
 	ip_v = 6;
 	init_dir = dir;
+
+	/*
+	printf("Flow ID: ");
+	for (int i = 0; i < 16; i++) {
+		printf("%02x:", ip_a.ip6_a[i]);
+	}
+	printf(" ");
+
+	for (int i = 0; i < 16; i++) {
+		printf("%02x:", ip_a.ip6_a[i]);
+	}
+
+	printf(" %d %d\n", port_a, port_b);
+	*/
 }
 
 bool FlowId::operator==(const FlowId &b) const {
@@ -125,6 +139,8 @@ bool FlowId::operator<(const FlowId &b) const {
 	/* replace with memcmp */
 	if(ip_v == 6) {
 		int i;
+		
+		
 		for(i=0;i<16;i++) {
 			if(ip_a.ip6_a[i] != b.ip_a.ip6_a[i])
 				return (ip_a.ip6_a[i] < b.ip_a.ip6_a[i]);
