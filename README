@@ -1,7 +1,7 @@
 Libflowmanager - A library for matching packets from trace files to TCP and UDP 
 flows
 
-Libflowmanager is Copyright (c) 2009-2011 The University of Waikato, Hamilton, 
+Libflowmanager is Copyright (c) 2009-2012 The University of Waikato, Hamilton, 
 New Zealand. All rights reserved.
 
 See the file COPYING for full licensing details for this software.

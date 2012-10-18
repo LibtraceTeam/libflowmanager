@@ -1,3 +1,19 @@
+Version 2.0.3
+-------------
+ * Redefined the meanings of "server" and "client" for a given libprotoident
+   flow. The "server" is now always the recipient of the first packet and the
+   "client" is always the sender of the first packet. This is much more 
+   intuitive than the direction based method of determining who is the server.
+ * Updated get_client and get_server functions in the flowId class to reflect
+   the change in definitions.
+ * Added get_local and get_external functions to the flowId class that will
+   return the "local" or "remote" IP addresses / ports. These functions behave
+   exactly the same as the old get_client and get_server functions did, so if
+   you preferred the old way, you can still use it (just replace get_client
+   with get_local and get_server with get_external).
+ * Fixed bug that was preventing both halves of a bidirectional IPv6 flow from
+   being matched to the same libflowmanager flow.
+
 Version 2.0.2
 -------------
  * Added a new config option (LFM_OPTION_TCP_ANYSTART) which will enable the
