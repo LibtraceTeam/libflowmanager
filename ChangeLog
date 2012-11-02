@@ -13,6 +13,11 @@ Version 2.0.3
    with get_local and get_server with get_external).
  * Fixed bug that was preventing both halves of a bidirectional IPv6 flow from
    being matched to the same libflowmanager flow.
+ * Added lfm_foreach_flow to the API - this allows users to run a specific 
+   function against every flow currently in the active flow list.
+ * Added lfm_release_flow to the API - this can be used instead of manually 
+   deleting the flow once the user has finished with an expired flow.
+ * Updated examples to cover new API functions.
 
 Version 2.0.2
 -------------
