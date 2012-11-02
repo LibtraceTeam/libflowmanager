@@ -347,6 +347,35 @@ Flow *lfm_expire_next_flow(double ts, bool force);
  */
 int lfm_set_config_option(lfm_config_t opt, void *value);
 
+/* Calls the provided function with each active flow as a parameter. Enables
+ * programmers to do something to each active flow without needing to expire
+ * the flows. An example might be to periodically grab packet and bytes counts 
+ * for long-running flows.
+ *
+ * Parameters:
+ *      func -  the function to be called for each active flow. Takes two 
+ *              parameters: the flow itself and a void pointer pointing to
+ *              any additional user data required for that function. The
+ *              function must return an int: -1 for error, 0 for terminate
+ *              and 1 for continue
+ *      data -  the user data to be passed into each function call
+ *
+ * Returns:
+ *      -1 if an error occurred, 1 otherwise.
+ */
+int lfm_foreach_flow(int (*func)(Flow *f, void *userdata), void *data);
+
+/* Frees the memory associated with a Flow structure - note that this does
+ * NOT include any memory the user has allocated for the extension pointer!
+ *
+ * Basically, this is a nice replacement for the delete we used to make the 
+ * user perform after they had finished with an expired flow.
+ *
+ * Parameters:
+ *      f - the flow to be deleted
+ */
+void lfm_release_flow(Flow *f);
+
 #ifdef __cplusplus
 }
 #endif 

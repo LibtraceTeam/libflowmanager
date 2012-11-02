@@ -994,6 +994,44 @@ Flow *lfm_expire_next_flow(double ts, bool force) {
 }
 
 
+/* Calls the provided function with each active flow as a parameter. Enables
+ * programmers to do something to each active flow without needing to expire
+ * the flows. An example might be to periodically grab packet and bytes counts 
+ * for long-running flows.
+ *
+ * Parameters:
+ *	func - 	the function to be called for each active flow. Takes two 
+ *		parameters: the flow itself and a void pointer pointing to
+ *		any additional user data required for that function. The
+ *		function must return an int: -1 for error, 0 for terminate
+ *		and 1 for continue
+ *	data - 	the user data to be passed into each function call
+ *
+ * Returns:
+ *	-1 if an error occurred, 1 otherwise.
+ */
+int lfm_foreach_flow(int (*func)(Flow *f, void *userdata), void *data) {
+
+	FlowMap::iterator i;
+
+	for (i = active_flows.begin(); i != active_flows.end(); i++) {
+		int ret = 0;
+		Flow *f = *(i->second);
+
+		ret = func(f, data);
+		if (ret == -1) 
+			return -1;
+		if (ret == 0)
+			break;
+	}
+	
+	return 1;
+}
+
+void lfm_release_flow(Flow *f) {
+	delete(f);
+}
+
 /* Constructors and Destructors */
 Flow::Flow(const FlowId conn_id) {
 	id = conn_id;

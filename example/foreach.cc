@@ -1,6 +1,6 @@
-/* Example program using libflowmanager to count flows in a trace file. 
- * Demonstrates how the libflowmanager API should be used to perform flow-based
- * measurements.
+/* Example program using libflowmanager to produce active flow counts every 5
+ * minutes. 
+ * Demonstrates how lfm_foreach_flow should be used.
  *
  * Author: Shane Alcock
  */
@@ -18,15 +18,20 @@
 #include <libtrace.h>
 #include <libflowmanager.h>
 
-uint64_t flow_counter = 0;
-
-
 /* This data structure is used to demonstrate how to use the 'extension' 
  * pointer to store custom data for a flow */
 typedef struct counter {
 	uint64_t packets;
 	uint8_t init_dir;
 } CounterFlow;
+
+typedef struct flowcounts {
+	uint64_t in;
+	uint64_t out;
+} FlowCounters;
+
+#define REPORT_FREQ (300)
+double last_report = 0;
 
 /* Initialises the custom data for the given flow. Allocates memory for a
  * CounterFlow structure and ensures that the extension pointer points at
@@ -38,9 +43,6 @@ void init_counter_flow(Flow *f, uint8_t dir) {
 	cflow = (CounterFlow *)malloc(sizeof(CounterFlow));
 	cflow->init_dir = dir;
 	cflow->packets = 0;
-	
-	/* Don't forget to update our flow counter too! */
-	flow_counter ++;
 	f->extension = cflow;
 }
 
@@ -67,12 +69,37 @@ void expire_counter_flows(double ts, bool exp_flag) {
                 free(cflow);
 
 		/* VERY IMPORTANT: release the Flow structure itself so
-                 * that libflowmanager can now safely delete the flow */
+		 * that libflowmanager can now safely delete the flow */
                 lfm_release_flow(expired);
-
         }
 }
 
+/* The function I want to run against each active flow. The return type
+ * must be an int and the parameters must be a Flow * and a void *.
+ */
+int count_active_flows(Flow *f, void *data) {
+
+	/* As always, we need to cast the extension pointer as well */
+	CounterFlow *cflow = (CounterFlow *)f->extension;
+
+	/* The void * contains a pointer to our FlowCounters structure, but
+	 * we have to cast it to the right type before we can use it */
+	FlowCounters *current; 
+	current = (FlowCounters *)data;
+
+	/* Increment the appropriate counter */
+	if (cflow->init_dir == 0)
+		current->out ++;
+	else
+		current->in ++;
+
+	/* Return 1 to indicate success and to carry on to the next flow */
+
+	/* XXX If we wanted to stop after a certain number of flows, we would
+	 * need to return zero when that number of flows is met */
+	return 1;
+
+}
 
 void per_packet(libtrace_packet_t *packet) {
 
@@ -93,6 +120,37 @@ void per_packet(libtrace_packet_t *packet) {
         if (l3_type != 0x0800) return;
         if (ip == NULL) return;
 
+        ts = trace_get_seconds(packet);
+	
+	/* Expire all suitably idle flows */
+        expire_counter_flows(ts, false);
+
+	/* Initialise our last report time */
+	if (last_report == 0)
+		last_report = ts;
+
+	/* Check if we need to do a report */
+	while (last_report + REPORT_FREQ < ts) {
+		FlowCounters fc;
+		/* Initialise the counter */
+		fc.in = 0;
+		fc.out = 0;
+
+		/* Use lfm_foreach_flow to run the count function against
+		 * each active flow. Pass in a pointer to fc as user data so
+		 * that we can have access to the final counts when the
+		 * counting is done.
+		 */
+		if (lfm_foreach_flow(count_active_flows, &fc) == -1) {
+			fprintf(stderr, "Error counting flows\n");
+			exit(1);
+		}
+
+		/* Print some results! */
+		printf("%.2f %" PRIu64 " %" PRIu64 "\n",ts, fc.out, fc.in);
+
+		last_report += REPORT_FREQ;
+	}
 
 	/* Many trace formats do not support direction tagging (e.g. PCAP), so
 	 * using trace_get_direction() is not an ideal approach. The one we
@@ -137,7 +195,6 @@ void per_packet(libtrace_packet_t *packet) {
 	 * instance, flows for which we have only seen a SYN will expire much
 	 * quicker than a TCP connection that has completed the handshake */
         tcp = trace_get_tcp(packet);
-        ts = trace_get_seconds(packet);
         if (tcp) {
                 lfm_check_tcp_flags(f, tcp, dir, ts);
         }
@@ -145,8 +202,6 @@ void per_packet(libtrace_packet_t *packet) {
         /* Tell libflowmanager to update the expiry time for this flow */
         lfm_update_flow_expiry_timeout(f, ts);
 
-	/* Expire all suitably idle flows */
-        expire_counter_flows(ts, false);
 
 }
 
@@ -158,8 +213,8 @@ int main(int argc, char *argv[]) {
 
         bool opt_true = true;
         bool opt_false = false;
-        double ts;
 
+        double ts;
         int i;
 
         packet = trace_create_packet();
@@ -227,12 +282,8 @@ int main(int argc, char *argv[]) {
         }
 
         trace_destroy_packet(packet);
-
-	/* And finally, print something useful to make the exercise 
-	 * worthwhile */
-	printf("Final count: %" PRIu64 "\n", flow_counter);
-
 	expire_counter_flows(ts, true);
+
         return 0;
 
 }
