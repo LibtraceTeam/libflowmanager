@@ -1028,6 +1028,15 @@ int lfm_foreach_flow(int (*func)(Flow *f, void *userdata), void *data) {
 	return 1;
 }
 
+/* Frees the memory associated with a Flow structure - note that this does
+ * NOT include any memory the user has allocated for the extension pointer!
+ *
+ * Basically, this is a nice replacement for the delete we used to make the 
+ * user perform after they had finished with an expired flow.
+ *
+ * Parameters:
+ *	f - the flow to be deleted
+ */
 void lfm_release_flow(Flow *f) {
 	delete(f);
 }
