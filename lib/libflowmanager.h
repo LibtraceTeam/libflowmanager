@@ -119,6 +119,8 @@ class FlowId {
         uint64_t get_id_num() const ;
         void get_server_ip_str(char * ret) const ;
         void get_client_ip_str(char * ret) const ;
+	void get_local_ip_str(char *ret) const;
+	void get_external_ip_str(char *ret) const;
 
         uint32_t get_server_ip() const ;
         uint8_t * get_server_ip6() const ;

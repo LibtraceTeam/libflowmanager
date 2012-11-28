@@ -222,6 +222,38 @@ void FlowId::get_client_ip_str(char * ret) const {
 	}
 }
 
+void FlowId::get_local_ip_str(char * ret) const {
+	if(ret == NULL)
+		return;
+	if(ip_v == 4) {
+		struct in_addr inp;
+		inp.s_addr = ip_b.ip4_b;
+		/* NOTE: the returned string is statically allocated - use it
+		 * or lose it! */
+		strcpy(ret, inet_ntoa(inp));
+	} else {
+		struct in6_addr inp;
+		memcpy(inp.s6_addr, ip_b.ip6_b, sizeof(ip_b.ip6_b));
+		inet_ntop(AF_INET6, &inp, ret, INET6_ADDRSTRLEN);
+	}
+}
+
+void FlowId::get_external_ip_str(char * ret) const {
+	if(ret == NULL)
+		return;
+	if(ip_v == 4) {
+		struct in_addr inp;
+		inp.s_addr = ip_a.ip4_a;
+		/* NOTE: the returned string is statically allocated - use it
+		 * or lose it! */
+		strcpy(ret, inet_ntoa(inp));
+	} else {
+		struct in6_addr inp;
+		memcpy(inp.s6_addr, ip_a.ip6_a, sizeof(ip_a.ip6_a));
+		inet_ntop(AF_INET6, &inp, ret, INET6_ADDRSTRLEN);
+	}
+}
+
 uint32_t FlowId::get_server_ip() const {
 	if(ip_v == 6)
 		return 0;
