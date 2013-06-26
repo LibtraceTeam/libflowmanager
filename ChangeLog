@@ -1,3 +1,19 @@
+Version 2.1.0
+-------------
+ * Expiry list management has been moved into separate plugins, allowing for
+   the implementation and use of different flow expiry algorithms. 
+ * Added new config options to support the new expiry plugins:
+ 	LFM_CONFIG_EXPIRY_PLUGIN
+	LFM_CONFIG_FIXED_EXPIRY_THRESHOLD
+ * Added a new config option for setting the amount of time to retain TCP flows
+   that are in closed state (i.e. in TIMEWAIT): LFM_CONFIG_TIMEWAIT_THRESHOLD
+ * Added a "fixed period of inactivity" expiry plugin, where all flows are
+   expired after being inactive for N seconds regardless of flow state or
+   transport protocol.
+ * Separated the experimental "short-lived UDP flow" expiry rule into its own
+   expiry plugin. It can still be invoked by setting the LFM_CONFIG_SHORT_UDP
+   config option, but this should be considered deprecated.
+
 Version 2.0.4
 -------------
  * Added get_local_ip_str and get_external_ip_str functions to the flowId class
