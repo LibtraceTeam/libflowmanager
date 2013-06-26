@@ -19,7 +19,7 @@
 #include <libflowmanager.h>
 
 uint64_t flow_counter = 0;
-
+uint64_t expired_flows = 0;
 
 /* This data structure is used to demonstrate how to use the 'extension' 
  * pointer to store custom data for a flow */
@@ -70,6 +70,7 @@ void expire_counter_flows(double ts, bool exp_flag) {
                  * that libflowmanager can now safely delete the flow */
                 lfm_release_flow(expired);
 
+		expired_flows ++;
         }
 }
 
@@ -159,6 +160,7 @@ int main(int argc, char *argv[]) {
         bool opt_true = true;
         bool opt_false = false;
         double ts;
+	lfm_plugin_id_t plugid = LFM_PLUGIN_STANDARD;
 
         int i;
 
@@ -179,10 +181,22 @@ int main(int argc, char *argv[]) {
         if (lfm_set_config_option(LFM_CONFIG_TCP_TIMEWAIT, &opt_false) == 0)
                 return -1;
 
-	/* This tells libflowmanager not to utilise the fast expiry rules for
-	 * short-lived UDP connections - these rules are experimental 
-	 * behaviour not in line with recommended "best" practice */
-	if (lfm_set_config_option(LFM_CONFIG_SHORT_UDP, &opt_false) == 0)
+	/* This tells libflowmanager to use the standard set of flow expiry
+	 * rules, i.e. the original libflowmanager expiry rules.
+	 *
+	 * Other possible rulesets are:
+	 *  LFM_PLUGIN_STANDARD_SHORT_UDP -- same as standard but with fast
+	 *  expiry for short UDP flows. 
+	 *  LFM_PLUGIN_FIXED_INACTIVE -- flows expire after a fixed period of
+	 *  inactivity regardless of flow state or transport protocol.
+	 *
+	 * Expiry thresholds for the other rulesets can be set using the
+	 * LFM_CONFIG_FIXED_EXPIRY_THRESHOLD config option. For the Short UDP
+	 * ruleset, this will set the inactivity threshold for the short UDP
+	 * flows (default is 10 seconds). For Fixed Inactive, this will set
+	 * the inactivity threshold for all flows (default is 60 seconds).
+	 */
+	if (lfm_set_config_option(LFM_CONFIG_EXPIRY_PLUGIN, &plugid) == 0)
 		return -1;
 
         optind = 1;
@@ -231,6 +245,7 @@ int main(int argc, char *argv[]) {
 	/* And finally, print something useful to make the exercise 
 	 * worthwhile */
 	printf("Final count: %" PRIu64 "\n", flow_counter);
+	printf("Expired flows: %" PRIu64 "\n", expired_flows);
 
 	expire_counter_flows(ts, true);
         return 0;

@@ -67,9 +67,22 @@ typedef enum {
 	/* handle IPv4 only */
 	LFM_CONFIG_DISABLE_IPV6,
 	
-	LFM_CONFIG_TCP_ANYSTART
+	LFM_CONFIG_TCP_ANYSTART,
+
+	LFM_CONFIG_EXPIRY_PLUGIN,
+
+	LFM_CONFIG_FIXED_EXPIRY_THRESHOLD,
+
+	LFM_CONFIG_TIMEWAIT_THRESHOLD,
 
 } lfm_config_t;
+
+typedef enum {
+	LFM_PLUGIN_STANDARD,
+	LFM_PLUGIN_STANDARD_SHORT_UDP,
+	LFM_PLUGIN_FIXED_INACTIVE,
+} lfm_plugin_id_t;
+
 
 /* We just use a standard 5-tuple as a flow key (with rudimentary support for
  * VLAN Ids) */
@@ -253,6 +266,18 @@ struct flowid_hash {
 
 
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
+
+struct lfm_plugin_t {
+
+	lfm_plugin_id_t id;
+
+	ExpireList::iterator (*add_new_flow) (Flow *f);
+	ExpireList::iterator (*update_expiry_timeout)(Flow *f, double ts);
+	Flow * (*expire_next_flow)(double ts, bool force);
+	void (*set_inactivity_threshold)(double thresh);
+	void (*set_timewait_threshold)(double thresh);
+
+};
 
 /* Search the active flows map for a flow matching the given 5-tuple
  *

@@ -35,6 +35,7 @@
 #include <string.h>
 
 #include "libflowmanager.h"
+#include "lfmplugin.h"
 
 #include <netinet/in.h>
 #include <sys/socket.h>
@@ -68,41 +69,13 @@ struct lfm_config_opts {
 
 	/* Create new tcp flows even if they're not SYNs */
 	bool tcp_anystart;
+
+	lfm_plugin_id_t active_plugin;
+
+	double fixed_expiry;
+
+	double timewait_thresh;
 };
-
-/**********************************/
-/* Expiry lists
- *
- * Each of the following lists is acting as a LRU. Because each LRU only
- * contains flows where the expiry condition is the same, we can easily
- * expire flows by popping off one end of the list until we reach a flow that
- * is not due to expire. Similarly, we can always insert at the other end and
- * remain certain that the list is maintained in order of expiry.
- *
- * It does mean that as more expiry rules are added, a new LRU has to also be
- * added to deal with it :(
- */
-
-/* LRU for unestablished TCP flows */
-ExpireList expire_tcp_syn;
-
-/* LRU for established TCP flows */
-ExpireList expire_tcp_estab;
-
-/* LRU for UDP flows - a bit of a misnomer, all non-TCP flows end up in here */
-ExpireList expire_udp;		
-
-/* LRU for short-lived UDP flows (only used if the short_udp config option is
- * set) */
-ExpireList expire_udpshort;
-
-/* LRU for all flows that met an instant expiry condition, e.g. TCP RST */
-ExpireList expired_flows;
-
-/* LRU for TCP flows starting with anything*/
-ExpireList expire_tcp_anystart;
-
-/****************************************/
 
 /* Map containing all flows that are present in one of the LRUs */
 FlowMap active_flows;
@@ -117,16 +90,45 @@ struct lfm_config_opts config = {
 			   flow */
 	false,		/* IPv4 Only */
 	false,		/* IPv6 Only */
-	false           /* start tcp flows on anything, not just SYNs */
+	false,          /* start tcp flows on anything, not just SYNs */
+	LFM_PLUGIN_STANDARD, /* Use standard expiry rules */
+	0,		/* Use the plugin default expiry times */
+	0,		/* No timewait threshold */
 };
 
 /* Each flow has a unique ID number - it is set to the value of this variable
  * when created and next_conn_id is incremented */
 static uint64_t next_conn_id = 0;
 
+struct lfm_plugin_t *expirer = NULL;
 
+static void load_plugin(lfm_plugin_id_t id) {
 
+	switch(id) {
+	case LFM_PLUGIN_STANDARD:
+		expirer = load_standard_plugin();
+		break;
+	case LFM_PLUGIN_STANDARD_SHORT_UDP:
+		expirer = load_shortudp_plugin();
+		break;
+	case LFM_PLUGIN_FIXED_INACTIVE:
+		expirer = load_fixed_inactive();
+		break;
+	default:
+		fprintf(stderr, "load_plugin: Invalid plugin ID %d\n", id);
+		return;
+	}
 
+	if (expirer->set_inactivity_threshold != NULL && 
+			config.fixed_expiry != 0) {
+		expirer->set_inactivity_threshold(config.fixed_expiry);
+	}
+
+	if (expirer->set_timewait_threshold != NULL && 
+			config.tcp_timewait != 0)
+		expirer->set_timewait_threshold(config.timewait_thresh);
+
+}
 
 /* Sets a libflowmanager configuration option.
  *
@@ -141,32 +143,48 @@ static uint64_t next_conn_id = 0;
  * 	1 if the option is set successfully, 0 otherwise
  */
 int lfm_set_config_option(lfm_config_t opt, void *value) {
+	if (!active_flows.empty()) {
+		fprintf(stderr, "Cannot change configuration once processing has begun!\n");
+		return 0;
+	}
+	
 	switch(opt) {
-		case LFM_CONFIG_IGNORE_RFC1918:
-			config.ignore_rfc1918 = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_TCP_TIMEWAIT:
-			config.tcp_timewait = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_SHORT_UDP:
-			config.short_udp = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_VLAN:
-			config.key_vlan = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_IGNORE_ICMP_ERROR:
-			config.ignore_icmp_errors = *(bool *)value;
-			return 1;
-			
-		case LFM_CONFIG_DISABLE_IPV4:
-			config.disable_ipv4 = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_DISABLE_IPV6:
-			config.disable_ipv6 = *(bool *)value;
-			return 1;
-		case LFM_CONFIG_TCP_ANYSTART:
-			config.tcp_anystart = *(bool *)value;
-			return 1;
+	case LFM_CONFIG_IGNORE_RFC1918:
+		config.ignore_rfc1918 = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_TCP_TIMEWAIT:
+		config.tcp_timewait = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_SHORT_UDP:
+		config.short_udp = *(bool *)value;
+		if (config.short_udp)
+			config.active_plugin = LFM_PLUGIN_STANDARD_SHORT_UDP;
+		return 1;
+	case LFM_CONFIG_VLAN:
+		config.key_vlan = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_IGNORE_ICMP_ERROR:
+		config.ignore_icmp_errors = *(bool *)value;
+		return 1;
+		
+	case LFM_CONFIG_DISABLE_IPV4:
+		config.disable_ipv4 = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_DISABLE_IPV6:
+		config.disable_ipv6 = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_TCP_ANYSTART:
+		config.tcp_anystart = *(bool *)value;
+		return 1;
+	case LFM_CONFIG_EXPIRY_PLUGIN:
+		config.active_plugin = *(lfm_plugin_id_t *)value;
+		return 1;
+	case LFM_CONFIG_FIXED_EXPIRY_THRESHOLD:
+		config.fixed_expiry = *(double *)value;
+		return 1;
+	case LFM_CONFIG_TIMEWAIT_THRESHOLD:
+		config.timewait_thresh = *(double *)value;
+		return 1;
 	}
 	return 0;
 }
@@ -515,7 +533,6 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 	libtrace_ip6_t *ip6 = NULL;
         FlowId pkt_id;
         Flow *new_conn;
-	ExpireList *exp_list;
 	uint16_t l3_type;
 	uint32_t pkt_left = 0;
 	uint32_t rem;
@@ -603,7 +620,19 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 						vlan_id, next_conn_id, dir);
         }
 
-	
+	/* If we don't have an expiry plugin loaded, load it now */
+	if (expirer == NULL) {
+		load_plugin(config.active_plugin);
+
+		/* Slightly drastic, but if the user cocks this up it would be
+		 * rude to spam them with an error message every packet
+		 */
+		if (expirer == NULL) {
+			fprintf(stderr, "Failed to load expiry plugin for libflowmanager -- halting program\n");
+			exit(1);
+		}
+	}
+
 	/* Try to find the flow key in our active flows map */
 	FlowMap::iterator i = active_flows.find(pkt_id);
 	
@@ -642,14 +671,12 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 			/* Create new TCP flow */
 			new_conn = new Flow(pkt_id);
 			new_conn->flow_state = FLOW_STATE_NEW;
-			exp_list = &expire_tcp_syn;
 		} 
 		
 		else {
 			/* Create new TCP flow */
 			new_conn = new Flow(pkt_id);
 			new_conn->flow_state = FLOW_STATE_ANYSTART;
-			exp_list = &expire_tcp_anystart;
 		}
 	}
 		
@@ -687,7 +714,6 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		/* Otherwise, we must be a legit ICMP flow */
 		new_conn = new Flow(pkt_id);
 		new_conn->flow_state = FLOW_STATE_NONE;
-		exp_list = &expire_udp;
 	} else {
 		
 		/* We don't have handy things like SYN flags to 
@@ -699,23 +725,13 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 			if (dir == 0)
 				new_conn->saw_outbound = true;
 
-			/* If we're using the short-lived UDP expiry rules,
-			 * all new flows will start with the short timeout */
-			if (config.short_udp) {
-				new_conn->flow_state = FLOW_STATE_UDPSHORT;
-				exp_list = &expire_udpshort;
-			} else {
-			/* Otherwise, use the standard UDP timeout */
-				new_conn->flow_state = FLOW_STATE_UDPLONG;
-				exp_list = &expire_udp;
-			}
+			new_conn->flow_state = FLOW_STATE_UDPSHORT;
 
 		}
 		else {
 			/* Unknown protocol - follow the standard UDP expiry
 			 * rules */
 			new_conn->flow_state = FLOW_STATE_NONE;
-			exp_list = &expire_udp;
 		}
 	
 	}
@@ -726,13 +742,12 @@ Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir,
 		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
 
 	/* Append our new flow to the appropriate LRU */
-	new_conn->expire_list = exp_list;
-	exp_list->push_front(new_conn);
+	ExpireList::iterator lruloc = expirer->add_new_flow(new_conn);
 	
 	/* Add our flow to the active flows map (or more correctly, add the 
 	 * iterator for our new flow in the LRU to the active flows map - 
 	 * this makes it easy for us to find the flow in the LRU)  */
-	active_flows[new_conn->id] = exp_list->begin();
+	active_flows[new_conn->id] = lruloc;
 
 	/* Increment the counter we use to generate flow IDs */
 	next_conn_id ++;
@@ -826,136 +841,23 @@ void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir,
  * 	ts - the timestamp of the last packet observed for the flow
  */
 void lfm_update_flow_expiry_timeout(Flow *flow, double ts) {
-	ExpireList *exp_list = NULL;
-	switch(flow->flow_state) {
-
-		case FLOW_STATE_RESET:
-		case FLOW_STATE_ICMPERROR:
-			/* We want to expire this as soon as possible */
-			flow->expire_time = ts;
-			exp_list = &expired_flows;
-			break;
-		
-		/* Unestablished TCP connections expire after 2 * the 
-		 * maximum segment lifetime (RFC 1122) 
-		 *
-		 * XXX include half-closed flows in here to try and expire
-		 * single FIN flows reasonably quickly */
-		case FLOW_STATE_NEW:
-		case FLOW_STATE_CONN:
-		case FLOW_STATE_HALFCLOSE:
-			flow->expire_time = ts + 240.0;
-			exp_list = &expire_tcp_syn;
-			break;
-		
-		/* Established TCP connections expire after 2 hours and 4
-		 * minutes (RFC 5382) */	
-		case FLOW_STATE_ESTAB:
-			flow->expire_time = ts + 7440.0;
-			exp_list = &expire_tcp_estab;
-			break;
-	
-		/* UDP flows expire after 2 minutes (RFC 4787) */		
-		case FLOW_STATE_NONE:
-		case FLOW_STATE_UDPLONG:
-			flow->expire_time = ts + 120.0;
-			exp_list = &expire_udp;
-			break;
-
-		/* UDP flows that have not seen more than one outgoing packet
-		 * expire after just 10 seconds. This is an experimental
-		 * technique that is not defined in any RFC or Internet draft,
-		 * but has proven effective in reducing the number of UDP flows
-		 * in the flow map. The 10 second value was selected
-		 * arbitrarily - I hope to one day figure out what the right
-		 * value is */
-		case FLOW_STATE_UDPSHORT:
-			flow->expire_time = ts + 10.0;
-			exp_list = &expire_udpshort;
-			break;
-			
-			
-		case FLOW_STATE_CLOSE:
-			/* If the timewait option is set for closed TCP
-			 * connections, keep the flow for an extra 2 minutes */
-			if (config.tcp_timewait) {
-				flow->expire_time = ts + 120.0;
-				exp_list = &expire_udp;
-			} else {
-				/* We want to expire this as soon as possible */
-				flow->expire_time = ts;
-				exp_list = &expired_flows;
-			}
-			break;
-			
-	        case FLOW_STATE_ANYSTART:
-			/* expire them in two minutes unless they transition into a proper state */
-			flow->expire_time = ts + 120.0;
-			exp_list = &expire_tcp_anystart;
-			break;
-				
-				
-	}
-
 	FlowMap::iterator i = active_flows.find(flow->id);
-	assert(exp_list);
+	ExpireList::iterator lruloc;
 
-	/* Remove the flow from its current position in an LRU */
+	if (expirer == NULL)
+		return;
+
+	/* Remove the flow from its current expiry LRU */
 	flow->expire_list->erase(i->second);
 
-	/* Push it onto its new LRU */
-	flow->expire_list = exp_list;
-	exp_list->push_front(flow);
+	lruloc = expirer->update_expiry_timeout(flow, ts);
 
 	/* Update the entry in the flow map */
-	i->second = exp_list->begin();
+	i->second = lruloc;
 	
-}
-
-/* Finds the next available expired flow in an LRU.
- *
- * Parameters:
- * 	expire - the LRU to pull an expired flow from
- * 	ts - the current timestamp 
- * 	force - if true, the next flow in the LRU will be forcibly expired,
- * 		regardless of whether it was due to expire or not.
- *
- * Returns:
- * 	the next flow to be expired from the LRU, or NULL if there are no
- * 	flows available to expire.
- */
-static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
-	ExpireList::iterator i;
-	Flow *exp_flow;
-	
-	/* Ensure that there is something in the LRU */
-	if (expire->empty())
-		return NULL;
-	
-	/* Check if the first flow in the LRU is due to expire */
-	exp_flow = expire->back();
-	if (exp_flow->expire_time <= ts)
-		exp_flow->expired = true;
-
-	/* If flow was due to expire (or the force expiry flag is set),
-	 * remove it from the LRU and flow map and return it to the caller */
-	if (force || exp_flow->expired) {
-		expire->pop_back();
-		active_flows.erase(exp_flow->id);
-		return exp_flow;
-	}
-
-	/* Otherwise, no flows available for expiry in this LRU */
-	return NULL;
-			
 }
 
 /* Finds and returns the next available flow that has expired.
- *
- * This is essentially the API-exported version of get_next_expired()
- *
- * Since we maintain multiple LRUS, they all need to be checked for
- * expirable flows before we can consider returning NULL. 
  *
  * Parameters:
  * 	ts - the current timestamp 
@@ -964,33 +866,19 @@ static Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
  *
  * Returns:
  * 	a flow that has expired, or NULL if there are no expired flows 
- * 	available in any of the LRUs
+ * 	available
  */
 Flow *lfm_expire_next_flow(double ts, bool force) {
 	Flow *exp_flow;
-	
-	/* Check each of the LRUs in turn */
-	exp_flow = get_next_expired(&expire_tcp_syn, ts, force);
-	if (exp_flow != NULL)
-		return exp_flow;
-	
-	exp_flow = get_next_expired(&expire_tcp_estab, ts, force);
-	if (exp_flow != NULL)
-		return exp_flow;
-	
-	exp_flow = get_next_expired(&expire_udp, ts, force);
-	if (exp_flow != NULL)
-		return exp_flow;
 
-	exp_flow = get_next_expired(&expire_udpshort, ts, force);
-	if (exp_flow != NULL)
-		return exp_flow;
+	if (expirer == NULL)
+		return NULL;
 
-	exp_flow = get_next_expired(&expire_tcp_anystart, ts, force);
-	if (exp_flow != NULL)
-		return exp_flow;
-
-	return get_next_expired(&expired_flows, ts, force);
+	exp_flow = expirer->expire_next_flow(ts, force);
+	if (exp_flow) 
+		active_flows.erase(exp_flow->id);
+	return exp_flow;
+	
 }
 
 
