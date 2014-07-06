@@ -1,9 +1,9 @@
 
 
-AC_INIT([libflowmanager],[2.1.0],[contact@wand.net.nz],[libflowmanager])
+AC_INIT([libflowmanager],[2.0.5],[contact@wand.net.nz],[libflowmanager])
 
 AC_CONFIG_SRCDIR([lib/libflowmanager.cc])
-AM_INIT_AUTOMAKE(libflowmanager, 2.1.0)
+AM_INIT_AUTOMAKE(libflowmanager, 2.0.5)
 
 # Make sure we use the relatively silent automake output
 m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])])
