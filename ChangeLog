@@ -1,5 +1,6 @@
-Version 2.1.0
+Version 2.0.5
 -------------
+ * Switched from GPLv2 to LGPL license.
  * Expiry list management has been moved into separate plugins, allowing for
    the implementation and use of different flow expiry algorithms. 
  * Added new config options to support the new expiry plugins:
