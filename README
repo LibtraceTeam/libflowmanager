@@ -1,10 +1,11 @@
-Libflowmanager - A library for matching packets from trace files to TCP and UDP 
-flows
+Libflowmanager - A library for matching packets from trace files to TCP and
+UDP flows
 
-Libflowmanager is Copyright (c) 2009-2012 The University of Waikato, Hamilton, 
-New Zealand. All rights reserved.
+Libflowmanager is Copyright (c) 2009-2012, 2016 The University of Waikato,
+Hamilton, New Zealand. All rights reserved.
 
-See the file COPYING for full licensing details for this software.
+See the files COPYING and COPYING.LESSER for full licensing details for this
+software.
 
 Report any bugs, questions or comments to contact@wand.net.nz
 
@@ -72,7 +73,7 @@ Libflowmanager API Notes
   * You are responsible for freeing any "extension" data belonging to a flow
     when that flow expires.
 
-  * Similarly, delete() MUST be called on any flow object returned by 
+  * Similarly, lfm_release_flow() MUST be called on any flow object returned by 
     lfm_expire_next_flow(). It has been removed from the active flows table
     but the memory is not freed because libflowmanager assumes that you might
     want to do something with the flow itself upon expiry.
