@@ -17,3 +17,5 @@ ltmain.sh
 missing
 stamp-h1
 m4/*.m4
+example/example
+example/foreach
