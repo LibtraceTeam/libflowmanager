@@ -47,34 +47,36 @@ appending the --prefix=<new location> option to ./configure.
 Libflowmanager API Notes
 ========================
 
-  * Before reading any packets, use lfm_set_config_option() to set any
+  * Start by creating a new instance of the FlowManager class, e.g.
+      fm = new FlowManager()
+
+  * Before reading any packets, use fm->setConfigOption() to set any
     configuration options.
 
   * For each packet perform the following tasks in the specified order:
-  	+ Call lfm_match_packet_to_flow() on the packet to get a pointer to 
+  	+ Call fm->matchPacketToFlow() on the packet to get a pointer to 
 	  the flow object that the packet matches. 
-	+ Call lfm_check_tcp_flags() to update the TCP state for TCP flows
-	+ Call lfm_update_flow_expiry_timeout() to update the expiry time for
-	  the current flow
-	+ Repeatedly call lfm_expire_next_flow() until all expired flows have
+	+ Call fm->updateFlowExpiry() to update the TCP state and expiry time
+          for the current flow
+	+ Repeatedly call fm->expireNextFlow() until all expired flows have
 	  been returned
 	
   * The flow object contains a void pointer called "extension". This is
     designed for the user to store their own per-flow data. Memory should be
     allocated and initialised for "extension" data whenever the "is_new_flow"
-    flag is set to true by lfm_match_packet_to_flow().
+    flag is set to true by matchPacketToFlow().
 
     For example, if I want to store packet and byte counts for each flow, I
     would allocate a structure containing two counters for each new flow and 
     store a pointer to that structure inside "extension". Everytime that flow 
-    is subsequently returned by lfm_match_packet_to_flow(), I can cast 
+    is subsequently returned by matchPacketToFlow(), I can cast 
     the void pointer "extension" to my structure and update the counters.
     
   * You are responsible for freeing any "extension" data belonging to a flow
     when that flow expires.
 
-  * Similarly, lfm_release_flow() MUST be called on any flow object returned by 
-    lfm_expire_next_flow(). It has been removed from the active flows table
+  * Similarly, fm->releaseFlow() MUST be called for any flow object returned by 
+    expireNextFlow(). It has been removed from the active flows table
     but the memory is not freed because libflowmanager assumes that you might
     want to do something with the flow itself upon expiry.
   
