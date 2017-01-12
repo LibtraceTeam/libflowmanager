@@ -64,7 +64,7 @@ typedef enum {
 
 	/* handle IPv4 only */
 	LFM_CONFIG_DISABLE_IPV6,
-	
+
 	LFM_CONFIG_TCP_ANYSTART,
 
 	LFM_CONFIG_EXPIRY_PLUGIN,
@@ -80,6 +80,43 @@ typedef enum {
 	LFM_PLUGIN_STANDARD_SHORT_UDP,
 	LFM_PLUGIN_FIXED_INACTIVE,
 } lfm_plugin_id_t;
+
+
+/* Struct containing values for all the configuration options */
+struct lfm_config_opts {
+
+        /* If true, ignore all packets that contain RFC1918 private addresses */
+        bool ignore_rfc1918;
+
+        /* If true, do not immediately expire flows after seeing FIN ACKs in
+         * both directions - wait for a short time first */
+        bool tcp_timewait;
+
+        /* If true, UDP sessions for which there has been only one outbound
+         * packet will be expired much more quickly */
+        bool short_udp;
+
+        /* If true, the VLAN Id will be used to form the flow key */
+        bool key_vlan;
+
+        bool ignore_icmp_errors;
+
+        /* IPv6 Only */
+        bool disable_ipv4;
+
+        /* IPv4 Only */
+        bool disable_ipv6;
+
+        /* Create new tcp flows even if they're not SYNs */
+        bool tcp_anystart;
+
+        lfm_plugin_id_t active_plugin;
+
+        double fixed_expiry;
+
+        double timewait_thresh;
+};
+
 
 
 /* We just use a standard 5-tuple as a flow key (with rudimentary support for
@@ -155,11 +192,11 @@ class FlowId {
  * idle before expiring */
 typedef enum {
 	/* Unknown protocol - no sensible state is possible */
-	FLOW_STATE_NONE,	
-	
+	FLOW_STATE_NONE,
+
 	/* New TCP connection */
 	FLOW_STATE_NEW,
-	
+
 	/* Unestablished TCP connection */
 	FLOW_STATE_CONN,
 
@@ -183,7 +220,6 @@ typedef enum {
 
 	/* Flow experienced an ICMP error */
 	FLOW_STATE_ICMPERROR,
-
 
 	/* A flow starting on any packet */
 	FLOW_STATE_ANYSTART
@@ -260,9 +296,6 @@ struct flowid_hash {
 
 /* Tried unordered map but it is surprisingly slow compared to a regular map */
 //typedef std::unordered_map<FlowId, ExpireList::iterator, flowid_hash> FlowMap;
-
-
-
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
 struct lfm_plugin_t {
@@ -277,129 +310,41 @@ struct lfm_plugin_t {
 
 };
 
-/* Search the active flows map for a flow matching the given 5-tuple
- *
- * Parameters:
- *      ip_a - the IP address of the first endpoint
- *      ip_b - the IP address of the second endpoint
- *      port_a - the port number used by the first endpoint
- *      port_b - the port number used by the second endpoint
- *      proto - the transport protocol
- *
- * Returns:
- * 	a pointer to the flow matching the provided 5-tuple, or NULL if no
- * 	matching flow exists.
- */
-Flow *lfm_find_managed_flow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a, 
-		uint16_t port_b, uint8_t proto);
 
-/* Returns a pointer to the Flow that matches the packet provided. If no such
- * Flow exists, a new Flow is created and added to the flow map before being
- * returned.
- *
- * Parameters:
- *      packet - the packet that is to be matched with a flow
- *      dir - the direction of the packet. 0 indicates outgoing, 1 indicates
- *            incoming.
- *      is_new_flow - a boolean flag that is set to true by this function if
- *                    a new flow was created for this packet. It is set to 
- *                    false if the returned flow already existed in the flow 
- *                    map.
- * 
- * Returns:
- *      a pointer to the entry in the active flow map that matches the packet
- *      provided, or NULL if the packet cannot be matched to a flow
- *
- */
-Flow *lfm_match_packet_to_flow(libtrace_packet_t *packet, uint8_t dir, 
-		bool *is_new_flow);
+class FlowManager {
 
-/* Examines the TCP flags in a packet and updates the flow state accordingly
- *
- * Parameters: 
- *      flow - the flow that the TCP packet belongs to
- *      tcp - a pointer to the TCP header in the packet
- *      dir - the direction of the packet (0=outgoing, 1=incoming)
- *      ts - the timestamp from the packet
- */
-void lfm_check_tcp_flags(Flow *flow, libtrace_tcp_t *tcp, uint8_t dir, 
-		double ts);
+public:
+        FlowManager();
+        ~FlowManager();
 
-/* Updates the timeout for a Flow.
- *
- * The flow state determines how long the flow can be idle before it times out. 
- *
- * Many of the values are selected based on best practice for NAT devices, 
- * which tend to be quite conservative.
- *
- * Parameters:
- *      flow - the flow that is to be updated
- *      ts - the timestamp of the last packet observed for the flow
- */
-void lfm_update_flow_expiry_timeout(Flow *flow, double ts);
+        int setConfigOption(lfm_config_t opt, void *value);
+        Flow *findManagedFlow(uint32_t ip_a, uint32_t ip_b, uint16_t port_a,
+                        uint16_t port_b, uint8_t proto);
+        Flow *findManagedFlow(uint8_t *ip_a, uint8_t *ip_b, uint16_t port_a,
+                        uint16_t port_b, uint8_t proto);
+        Flow *matchPacketToFlow(libtrace_packet_t *packet, uint8_t dir,
+                        bool *is_new_flow);
+        void updateFlowExpiry(Flow *f, libtrace_packet_t *packet, uint8_t dir,
+                        double ts);
+        Flow *expireNextFlow(double ts, bool force);
+        int foreachFlow(int (*func)(Flow *f, void *userdata), void *data);
+        void releaseFlow(Flow *f);
 
 
-/* Finds and returns the next available flow that has expired.
- *
- * Parameters:
- *      ts - the current timestamp 
- *      force - if true, the next flow in the LRU will be forcibly expired,
- *              regardless of whether it was due to expire or not.
- *
- * Returns:
- *      a flow that has expired, or NULL if there are no expired flows 
- *      available in any of the LRUs
- *
- * NOTE: you MUST call delete() yourself on the flow that is returned by this 
- * function once you are finished with it.
- * It is also your responsibility to free any memory that is stored in the
- * "extension" pointer before deleting the flow.
- *
- */
-Flow *lfm_expire_next_flow(double ts, bool force);
+private:
+        FlowMap *active;
+        uint64_t nextconnid;
+        struct lfm_plugin_t *expirer;
+        lfm_config_opts config;
 
-/* Sets a libflowmanager configuration option.
- *
- * Note that config options should be set BEFORE any packets are passed in
- * to other libflowmanager functions.
- *
- * Parameters:
- *      opt - the config option that is being changed
- *      value - the value to set the option to
- *
- * Returns:
- *      1 if the option is set successfully, 0 otherwise
- */
-int lfm_set_config_option(lfm_config_t opt, void *value);
+        void loadExpiryPlugin();
+        Flow *findFlowFromICMP(void *icmp, uint32_t pkt_left, bool is_v6);
+        void expireICMPError(void *icmp, uint32_t pkt_left, bool is_v6);
+        void updateTCPState(Flow *f, libtrace_tcp_t *tcp, uint8_t dir);
+        void updateUDPState(Flow *f, uint8_t dir);
+};
 
-/* Calls the provided function with each active flow as a parameter. Enables
- * programmers to do something to each active flow without needing to expire
- * the flows. An example might be to periodically grab packet and bytes counts 
- * for long-running flows.
- *
- * Parameters:
- *      func -  the function to be called for each active flow. Takes two 
- *              parameters: the flow itself and a void pointer pointing to
- *              any additional user data required for that function. The
- *              function must return an int: -1 for error, 0 for terminate
- *              and 1 for continue
- *      data -  the user data to be passed into each function call
- *
- * Returns:
- *      -1 if an error occurred, 1 otherwise.
- */
-int lfm_foreach_flow(int (*func)(Flow *f, void *userdata), void *data);
-
-/* Frees the memory associated with a Flow structure - note that this does
- * NOT include any memory the user has allocated for the extension pointer!
- *
- * Basically, this is a nice replacement for the delete we used to make the 
- * user perform after they had finished with an expired flow.
- *
- * Parameters:
- *      f - the flow to be deleted
- */
-void lfm_release_flow(Flow *f);
+void lfm_version_three(void);
 
 #ifdef __cplusplus
 }
