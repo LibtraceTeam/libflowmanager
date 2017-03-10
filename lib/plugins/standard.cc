@@ -5,7 +5,7 @@
  * All rights reserved.
  *
  * This file is part of libflowmanager.
- *
+ q*
  * This code has been developed by the University of Waikato WAND
  * research group. For further information please see http://www.wand.net.nz/
  *
@@ -27,92 +27,102 @@
 
 #include <assert.h>
 
-#include "lfmplugin.h"
+#include "standard.h"
 #include "libflowmanager.h"
 
-static double timewait_thresh = 0.0;
-static double shortudp_thresh = 10.0;
 
-/**********************************/
-/* Expiry lists
- *
- * Each of the following lists is acting as a LRU. Because each LRU only
- * contains flows where the expiry condition is the same, we can easily
- * expire flows by popping off one end of the list until we reach a flow that
- * is not due to expire. Similarly, we can always insert at the other end and
- * remain certain that the list is maintained in order of expiry.
- *
- * It does mean that as more expiry rules are added, a new LRU has to also be
- * added to deal with it :(
- */
+StandardExpiryManager::StandardExpiryManager() {
+        this->timewait_thresh = 0.0;
+        this->shortudp_thresh = 0.0;
 
-/* LRU for unestablished TCP flows */
-static ExpireList expire_tcp_syn;
-
-/* LRU for established TCP flows */
-static ExpireList expire_tcp_estab;
-
-/* LRU for UDP flows - a bit of a misnomer, all non-TCP flows end up in here */
-static ExpireList expire_udp;
-
-/* LRU for short-lived UDP flows (only used if the short_udp config option is
- * set) */
-static ExpireList expire_udpshort;
-
-/* LRU for all flows that met an instant expiry condition, e.g. TCP RST */
-static ExpireList expired_flows;
-
-/* LRU for TCP flows starting with anything*/
-static ExpireList expire_tcp_anystart;
-
-/* LRU for TCP flows in timewait */
-static ExpireList expire_tcp_timewait;
-
-/****************************************/
-
-static ExpireList *determine_expirelist(Flow *f, bool udpshort) {
-	ExpireList *explist = NULL;
-	
-	switch(f->flow_state) {
-	case FLOW_STATE_NEW:
-	case FLOW_STATE_CONN:
-	case FLOW_STATE_HALFCLOSE:
-		explist = &expire_tcp_syn;
-		break;
-	case FLOW_STATE_ANYSTART:
-		explist = &expire_tcp_anystart;
-		break;
-	case FLOW_STATE_NONE:
-	case FLOW_STATE_UDPLONG:
-		explist = &expire_udp;
-		break;
-	case FLOW_STATE_UDPSHORT:
-		if (udpshort)
-			explist = &expire_udpshort;
-		else
-			explist = &expire_udp;
-		break;
-	case FLOW_STATE_RESET:
-	case FLOW_STATE_ICMPERROR:
-		explist = &expired_flows;
-		break;
-	case FLOW_STATE_ESTAB:
-		explist = &expire_tcp_estab;
-		break;
-	case FLOW_STATE_CLOSE:
-		if (timewait_thresh > 0)
-			explist = &expire_tcp_timewait;
-		else
-			explist = &expired_flows;
-		break;
-	default:
-		fprintf(stderr, "Unknown flow state: %d\n", f->flow_state);
-		assert(0);	// XXX Temporary
-	}
-	return explist;
+        this->expire_tcp_syn = new ExpireList();
+        this->expire_tcp_estab = new ExpireList();
+        this->expire_udp = new ExpireList();
+        this->expire_udpshort = new ExpireList();
+        this->expire_expired_flows = new ExpireList();
+        this->expire_tcp_anystart = new ExpireList();
+        this->expire_tcp_timewait = new ExpireList();
 }
 
-static double determine_timeout(Flow *f, double ts, bool udpshort) {
+StandardExpiryManager::~StandardExpiryManager() {
+
+        delete(this->expire_tcp_syn);
+        delete(this->expire_tcp_estab);
+        delete(this->expire_tcp_anystart);
+        delete(this->expire_tcp_timewait);
+        delete(this->expire_udp);
+        delete(this->expire_udpshort);
+        delete(this->expire_expired_flows);
+}
+
+
+ExpireList::iterator StandardExpiryManager::addNewFlow(Flow *f) {
+
+	ExpireList *explist = this->chooseExpiryList(f);
+	f->expire_list = explist;
+	explist->push_front(f);
+	return explist->begin();
+
+}
+
+ExpireList::iterator StandardExpiryManager::updateExpiryTimeout(Flow *f, double ts) {
+
+	ExpireList *explist = this->chooseExpiryList(f);
+	double timeout = this->getTimeout(f, ts);
+
+	f->expire_time = timeout;
+	f->expire_list = explist;
+	explist->push_front(f);
+	return explist->begin();
+
+}
+
+Flow *StandardExpiryManager::expireNextFlow(double ts, bool force) {
+	Flow *exp_flow;
+
+	/* Check each of the LRUs in turn */
+        exp_flow = getNextExpiredFromList(this->expire_tcp_syn, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        exp_flow = getNextExpiredFromList(this->expire_tcp_estab, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        exp_flow = getNextExpiredFromList(this->expire_udp, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        exp_flow = getNextExpiredFromList(this->expire_udpshort, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        exp_flow = getNextExpiredFromList(this->expire_tcp_anystart, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        exp_flow = getNextExpiredFromList(this->expire_tcp_timewait, ts, force);
+        if (exp_flow != NULL)
+                return exp_flow;
+
+        return getNextExpiredFromList(this->expire_expired_flows, ts, force);
+
+}
+
+void StandardExpiryManager::setShortUdpThreshold(double thresh) {
+        if (thresh < 0)
+                return;
+        this->shortudp_thresh = thresh;
+
+}
+
+void StandardExpiryManager::setTimewaitThreshold(double thresh) {
+        if (thresh < 0)
+                return;
+        this->timewait_thresh = thresh;
+}
+
+double StandardExpiryManager::getTimeout(Flow *f, double ts) {
 
 	switch(f->flow_state) {
 	/* Unestablished TCP connections expire after 2 * the maximum
@@ -135,145 +145,76 @@ static double determine_timeout(Flow *f, double ts, bool udpshort) {
 	case FLOW_STATE_NONE:
 	case FLOW_STATE_UDPLONG:
 		return ts + 120.0;
-	
-	/* If we're using the short udp plugin, try and expire any UDP flows
-	 * that have not seen more than one outgoing packet very quickly. This
-	 * is an experimental approach that has proved very effective in
-	 * reducing the number of UDP flows cluttering up the flow map.
-	 */
+
 	case FLOW_STATE_UDPSHORT:
-		if (udpshort)
-			return ts + shortudp_thresh;
-		else
-			return ts + 120.0;
-		
+                if (this->shortudp_thresh > 0)
+                        return ts + this->shortudp_thresh;
+                else
+                        return ts + 120.0;
+
 	/* Expire these right away! */
 	case FLOW_STATE_RESET:
 	case FLOW_STATE_ICMPERROR:
 		return ts;
-		
+
 	/* Established TCP connections expire after 2 hours and 4 minutes of
 	 * inactivity -- RFC 5382 */
 	case FLOW_STATE_ESTAB:
 		return ts + 7440.0;
 
-	/* Connection is over, but we may want to keep it around a little 
+	/* Connection is over, but we may want to keep it around a little
 	 * longer just to catch any final packets.
-	 */	
+	 */
 	case FLOW_STATE_CLOSE:
 		return ts + timewait_thresh;
-	
+
 	default:
 		fprintf(stderr, "Unknown flow state: %d\n", f->flow_state);
 		assert(0);	// XXX Temporary
 	}
 	return ts;
-}
-
-ExpireList::iterator standard_add_new_flow(Flow *f) {
-
-	ExpireList *explist = determine_expirelist(f, false);
-	f->expire_list = explist;
-	explist->push_front(f);
-	return explist->begin();	
-}
-
-ExpireList::iterator shortudp_add_new_flow(Flow *f) {
-
-	ExpireList *explist = determine_expirelist(f, true);
-
-	f->expire_list = explist;
-	explist->push_front(f);
-	return explist->begin();	
-}
-
-ExpireList::iterator standard_update_expiry(Flow *f, double ts) {
-
-	ExpireList *explist = determine_expirelist(f, false);
-	double timeout = determine_timeout(f, ts, false);
-
-	f->expire_time = timeout;
-	f->expire_list = explist;
-	explist->push_front(f);
-	return explist->begin();
 
 }
 
-ExpireList::iterator shortudp_update_expiry(Flow *f, double ts) {
+ExpireList *StandardExpiryManager::chooseExpiryList(Flow *f) {
 
-	ExpireList *explist = determine_expirelist(f, true);
-	double timeout = determine_timeout(f, ts, true);
+	ExpireList *explist = NULL;
 
-	f->expire_time = timeout;
-	f->expire_list = explist;
-	explist->push_front(f);
-	return explist->begin();
-
-}
-
-Flow *standard_expire_next(double ts, bool force) {
-	Flow *exp_flow;
-
-	/* Check each of the LRUs in turn */
-        exp_flow = get_next_expired(&expire_tcp_syn, ts, force);
-        if (exp_flow != NULL)
-                return exp_flow;
-
-        exp_flow = get_next_expired(&expire_tcp_estab, ts, force);
-        if (exp_flow != NULL)
-                return exp_flow;
-
-        exp_flow = get_next_expired(&expire_udp, ts, force);
-        if (exp_flow != NULL)
-                return exp_flow;
-
-        exp_flow = get_next_expired(&expire_udpshort, ts, force);
-        if (exp_flow != NULL)
-                return exp_flow;
-
-        exp_flow = get_next_expired(&expire_tcp_anystart, ts, force);
-        if (exp_flow != NULL)
-                return exp_flow;
-
-        return get_next_expired(&expired_flows, ts, force);
-
-}
-
-void standard_set_timewait(double thresh) {
-	if (thresh < 0)
-		return;
-	timewait_thresh = thresh;
-}
-
-void shortudp_set_threshold(double thresh) {
-	if (thresh < 0)
-		return;
-	shortudp_thresh = thresh;
-}
-
-static struct lfm_plugin_t standard = {
-	LFM_PLUGIN_STANDARD,
-	standard_add_new_flow,
-	standard_update_expiry,
-	standard_expire_next,
-	NULL,
-	standard_set_timewait,
-};
-
-static struct lfm_plugin_t shortudp = {
-	LFM_PLUGIN_STANDARD_SHORT_UDP,
-	shortudp_add_new_flow,
-	shortudp_update_expiry,
-	standard_expire_next,
-	shortudp_set_threshold,
-	standard_set_timewait
-};
-
-
-lfm_plugin_t *load_standard_plugin() {
-	return &standard;
-}
-
-lfm_plugin_t *load_shortudp_plugin() {
-	return &shortudp;
+	switch(f->flow_state) {
+	case FLOW_STATE_NEW:
+	case FLOW_STATE_CONN:
+	case FLOW_STATE_HALFCLOSE:
+		explist = this->expire_tcp_syn;
+		break;
+	case FLOW_STATE_ANYSTART:
+		explist = this->expire_tcp_anystart;
+		break;
+	case FLOW_STATE_NONE:
+	case FLOW_STATE_UDPLONG:
+		explist = this->expire_udp;
+		break;
+	case FLOW_STATE_UDPSHORT:
+                if (this->shortudp_thresh > 0)
+                        explist = this->expire_udpshort;
+                else
+                        explist = this->expire_udp;
+                break;
+	case FLOW_STATE_RESET:
+	case FLOW_STATE_ICMPERROR:
+		explist = this->expire_expired_flows;
+		break;
+	case FLOW_STATE_ESTAB:
+		explist = this->expire_tcp_estab;
+		break;
+	case FLOW_STATE_CLOSE:
+		if (this->timewait_thresh > 0)
+			explist = this->expire_tcp_timewait;
+		else
+			explist = this->expire_expired_flows;
+		break;
+	default:
+		fprintf(stderr, "Unknown flow state: %d\n", f->flow_state);
+		assert(0);	// XXX Temporary
+	}
+	return explist;
 }

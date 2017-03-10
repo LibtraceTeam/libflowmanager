@@ -215,6 +215,7 @@ FlowManager::~FlowManager() {
                         delete(f);
                 }
         }
+        delete(this->expirer);
         this->active->clear();
         delete(this->active);
 
@@ -223,29 +224,35 @@ FlowManager::~FlowManager() {
 
 void FlowManager::loadExpiryPlugin() {
         switch(this->config.active_plugin) {
-	case LFM_PLUGIN_STANDARD:
-		this->expirer = load_standard_plugin();
+	case LFM_PLUGIN_STANDARD: {
+		StandardExpiryManager *sem = new StandardExpiryManager();
+	        if (this->config.tcp_timewait != 0) {
+		        sem->setTimewaitThreshold(this->config.timewait_thresh);
+                }
+                if (this->config.short_udp) {
+                        if (this->config.fixed_expiry != 0) {
+                                sem->setShortUdpThreshold(this->config.fixed_expiry);
+                        } else {
+                                sem->setShortUdpThreshold(10);
+                        }
+                }
+                this->expirer = sem;
 		break;
-	case LFM_PLUGIN_STANDARD_SHORT_UDP:
-		this->expirer = load_shortudp_plugin();
-		break;
-	case LFM_PLUGIN_FIXED_INACTIVE:
-		this->expirer = load_fixed_inactive();
-		break;
+        }
+	case LFM_PLUGIN_FIXED_INACTIVE: {
+                FixedExpiryManager *fem = new FixedExpiryManager();
+                if (this->config.fixed_expiry != 0) {
+                        fem->setTimeoutThreshold(this->config.fixed_expiry);
+                }
+                this->expirer = fem;
+                break;
+        }
 	default:
 		fprintf(stderr, "load_plugin: Invalid plugin ID %d\n",
                                 this->config.active_plugin);
 		return;
 	}
 
-	if (this->expirer->set_inactivity_threshold != NULL &&
-			this->config.fixed_expiry != 0) {
-		this->expirer->set_inactivity_threshold(this->config.fixed_expiry);
-	}
-
-	if (this->expirer->set_timewait_threshold != NULL &&
-			this->config.tcp_timewait != 0)
-		this->expirer->set_timewait_threshold(this->config.timewait_thresh);
 
 }
 
@@ -813,7 +820,7 @@ Flow *FlowManager::matchPacketToFlow(libtrace_packet_t *packet, uint8_t dir,
 		new_conn->dir_info[dir].first_pkt_ts = trace_get_seconds(packet);
 
 	/* Append our new flow to the appropriate LRU */
-	ExpireList::iterator lruloc = this->expirer->add_new_flow(new_conn);
+	ExpireList::iterator lruloc = this->expirer->addNewFlow(new_conn);
 
 	/* Add our flow to the active flows map (or more correctly, add the 
 	 * iterator for our new flow in the LRU to the active flows map - 
@@ -935,7 +942,7 @@ void FlowManager::updateFlowExpiry(Flow *flow, libtrace_packet_t *packet,
 	/* Remove the flow from its current expiry LRU */
 	flow->expire_list->erase(i->second);
 
-	lruloc = this->expirer->update_expiry_timeout(flow, ts);
+	lruloc = this->expirer->updateExpiryTimeout(flow, ts);
 
 	/* Update the entry in the flow map */
 	i->second = lruloc;
@@ -959,7 +966,7 @@ Flow *FlowManager::expireNextFlow(double ts, bool force) {
 	if (this->expirer == NULL)
 		return NULL;
 
-	exp_flow = this->expirer->expire_next_flow(ts, force);
+	exp_flow = this->expirer->expireNextFlow(ts, force);
 	if (exp_flow)
 		this->active->erase(exp_flow->id);
 	return exp_flow;

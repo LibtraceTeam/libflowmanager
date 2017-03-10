@@ -298,18 +298,18 @@ struct flowid_hash {
 //typedef std::unordered_map<FlowId, ExpireList::iterator, flowid_hash> FlowMap;
 typedef std::map<FlowId, ExpireList::iterator> FlowMap;
 
-struct lfm_plugin_t {
+class ExpiryManager {
 
-	lfm_plugin_id_t id;
+public:
+        ExpiryManager();
+        virtual ~ExpiryManager() {};
 
-	ExpireList::iterator (*add_new_flow) (Flow *f);
-	ExpireList::iterator (*update_expiry_timeout)(Flow *f, double ts);
-	Flow * (*expire_next_flow)(double ts, bool force);
-	void (*set_inactivity_threshold)(double thresh);
-	void (*set_timewait_threshold)(double thresh);
+        virtual ExpireList::iterator addNewFlow(Flow *f) = 0;
+        virtual ExpireList::iterator updateExpiryTimeout(Flow *f,
+                        double ts) = 0;
+        virtual Flow *expireNextFlow(double ts, bool force) = 0;
 
 };
-
 
 class FlowManager {
 
@@ -334,7 +334,7 @@ public:
 private:
         FlowMap *active;
         uint64_t nextconnid;
-        struct lfm_plugin_t *expirer;
+        ExpiryManager *expirer;
         lfm_config_opts config;
 
         void loadExpiryPlugin();
@@ -345,6 +345,9 @@ private:
 };
 
 void lfm_version_three(void);
+
+/* lib/plugins/lfmplugin.cc */
+Flow *getNextExpiredFromList(ExpireList *expire, double ts, bool force);
 
 #ifdef __cplusplus
 }

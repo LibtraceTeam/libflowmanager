@@ -29,19 +29,13 @@
 #include "libflowmanager.h"
 #include "lfmplugin.h"
 
-/* Finds the next available expired flow in an LRU.
- *
- * Parameters:
- *      expire - the LRU to pull an expired flow from
- *      ts - the current timestamp 
- *      force - if true, the next flow in the LRU will be forcibly expired,
- *              regardless of whether it was due to expire or not.
- *
- * Returns:
- *      the next flow to be expired from the LRU, or NULL if there are no
- *      flows available to expire.
- */
-Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
+ExpiryManager::ExpiryManager() {
+
+}
+
+
+Flow *getNextExpiredFromList(ExpireList *expire, double ts, bool force) {
+
         ExpireList::iterator i;
         Flow *exp_flow;
 
@@ -52,19 +46,17 @@ Flow *get_next_expired(ExpireList *expire, double ts, bool force) {
         /* Check if the first flow in the LRU is due to expire */
         exp_flow = expire->back();
         assert(exp_flow);
-	if (exp_flow->expire_time <= ts)
+        if (exp_flow->expire_time <= ts)
                 exp_flow->expired = true;
 
         /* If flow was due to expire (or the force expiry flag is set),
          * remove it from the LRU and flow map and return it to the caller */
         if (force || exp_flow->expired) {
                 expire->pop_back();
-                //active_flows.erase(exp_flow->id);
                 return exp_flow;
         }
 
         /* Otherwise, no flows available for expiry in this LRU */
         return NULL;
-
 }
 

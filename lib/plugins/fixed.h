@@ -24,10 +24,24 @@
  *
  *
  */
-#ifndef LFM_PLUGIN_COMMON_H_
-#define LFM_PLUGIN_COMMON_H_
 
-#include "standard.h"
-#include "fixed.h"
 
-#endif
+#include "libflowmanager.h"
+
+class FixedExpiryManager: public ExpiryManager {
+
+public:
+        FixedExpiryManager();
+        ~FixedExpiryManager();
+        void setTimeoutThreshold(double thresh);
+
+        ExpireList::iterator addNewFlow(Flow *f);
+        ExpireList::iterator updateExpiryTimeout(Flow *f, double ts);
+        Flow *expireNextFlow(double ts, bool force);
+
+private:
+        double timeout_thresh;
+
+        ExpireList *stillactive;
+        ExpireList *expired;
+};
