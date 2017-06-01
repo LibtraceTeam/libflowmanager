@@ -1,6 +1,6 @@
 /* Example program using libflowmanager to produce active flow counts every 5
  * minutes. 
- * Demonstrates how lfm_foreach_flow should be used.
+ * Demonstrates how foreachFlow should be used.
  *
  * Author: Shane Alcock
  */
@@ -33,6 +33,8 @@ typedef struct flowcounts {
 #define REPORT_FREQ (300)
 double last_report = 0;
 
+FlowManager *fm = NULL;
+
 /* Initialises the custom data for the given flow. Allocates memory for a
  * CounterFlow structure and ensures that the extension pointer points at
  * it.
@@ -56,7 +58,7 @@ void expire_counter_flows(double ts, bool exp_flag) {
         Flow *expired;
 
         /* Loop until libflowmanager has no more expired flows available */
-	while ((expired = lfm_expire_next_flow(ts, exp_flag)) != NULL) {
+	while ((expired = fm->expireNextFlow(ts, exp_flag)) != NULL) {
 
                 CounterFlow *cflow = (CounterFlow *)expired->extension;
 		
@@ -70,7 +72,7 @@ void expire_counter_flows(double ts, bool exp_flag) {
 
 		/* VERY IMPORTANT: release the Flow structure itself so
 		 * that libflowmanager can now safely delete the flow */
-                lfm_release_flow(expired);
+                fm->releaseFlow(expired);
         }
 }
 
@@ -136,12 +138,12 @@ void per_packet(libtrace_packet_t *packet) {
 		fc.in = 0;
 		fc.out = 0;
 
-		/* Use lfm_foreach_flow to run the count function against
+		/* Use foreachFlow to run the count function against
 		 * each active flow. Pass in a pointer to fc as user data so
 		 * that we can have access to the final counts when the
 		 * counting is done.
 		 */
-		if (lfm_foreach_flow(count_active_flows, &fc) == -1) {
+		if (fm->foreachFlow(count_active_flows, &fc) == -1) {
 			fprintf(stderr, "Error counting flows\n");
 			exit(1);
 		}
@@ -172,7 +174,7 @@ void per_packet(libtrace_packet_t *packet) {
         /* Match the packet to a Flow - this will create a new flow if
 	 * there is no matching flow already in the Flow map and set the
 	 * is_new flag to true. */
-        f = lfm_match_packet_to_flow(packet, dir, &is_new);
+        f = fm->matchPacketToFlow(packet, dir, &is_new);
 
 	/* Libflowmanager did not like something about that packet - best to
 	 * just ignore it and carry on */
@@ -190,17 +192,8 @@ void per_packet(libtrace_packet_t *packet) {
 	/* Increment our packet counter */
 	cflow->packets ++;
 
-        /* Update TCP state for TCP flows. The TCP state determines how long
-	 * the flow can be idle before being expired by libflowmanager. For
-	 * instance, flows for which we have only seen a SYN will expire much
-	 * quicker than a TCP connection that has completed the handshake */
-        tcp = trace_get_tcp(packet);
-        if (tcp) {
-                lfm_check_tcp_flags(f, tcp, dir, ts);
-        }
-
         /* Tell libflowmanager to update the expiry time for this flow */
-        lfm_update_flow_expiry_timeout(f, ts);
+        fm->updateFlowExpiry(f, packet, dir, ts);
 
 
 }
@@ -217,6 +210,8 @@ int main(int argc, char *argv[]) {
         double ts;
         int i;
 
+        fm = new FlowManager();
+
         packet = trace_create_packet();
         if (packet == NULL) {
                 perror("Creating libtrace packet");
@@ -225,19 +220,19 @@ int main(int argc, char *argv[]) {
 
 	/* This tells libflowmanager to ignore any flows where an RFC1918
 	 * private IP address is involved */
-        if (lfm_set_config_option(LFM_CONFIG_IGNORE_RFC1918, &opt_true) == 0)
+        if (fm->setConfigOption(LFM_CONFIG_IGNORE_RFC1918, &opt_true) == 0)
                 return -1;
 
 	/* This tells libflowmanager not to replicate the TCP timewait
 	 * behaviour where closed TCP connections are retained in the Flow
 	 * map for an extra 2 minutes */
-        if (lfm_set_config_option(LFM_CONFIG_TCP_TIMEWAIT, &opt_false) == 0)
+        if (fm->setConfigOption(LFM_CONFIG_TCP_TIMEWAIT, &opt_false) == 0)
                 return -1;
 
 	/* This tells libflowmanager not to utilise the fast expiry rules for
 	 * short-lived UDP connections - these rules are experimental 
 	 * behaviour not in line with recommended "best" practice */
-	if (lfm_set_config_option(LFM_CONFIG_SHORT_UDP, &opt_false) == 0)
+	if (fm->setConfigOption(LFM_CONFIG_SHORT_UDP, &opt_false) == 0)
 		return -1;
 
         optind = 1;
@@ -283,6 +278,7 @@ int main(int argc, char *argv[]) {
 
         trace_destroy_packet(packet);
 	expire_counter_flows(ts, true);
+        delete(fm);
 
         return 0;
 

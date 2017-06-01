@@ -26,69 +26,57 @@
  */
 
 
-#include "lfmplugin.h"
+#include "fixed.h"
 #include "libflowmanager.h"
 
-static double fixed_thresh = 120.0;
+FixedExpiryManager::FixedExpiryManager() {
+        this->timeout_thresh = 120.0;
 
-/* Just one prinicipal expiry LRU, since everything is going to have the same 
- * inactivity timeout threshold
- */
-static ExpireList expiry;
-
-/* Special expiry LRU for flows that need to be expired immediately */
-static ExpireList expired;
-
-ExpireList::iterator fixed_add_new_flow(Flow *f) {
-
-	f->expire_list = &expiry;
-	expiry.push_front(f);
-	return expiry.begin();
+        this->expired = new ExpireList();
+        this->stillactive = new ExpireList();
 }
 
-ExpireList::iterator fixed_update_expiry(Flow *f, double ts) {
+FixedExpiryManager::~FixedExpiryManager() {
+        delete(this->expired);
+        delete(this->stillactive);
+}
 
-	switch(f->flow_state) {
-	case FLOW_STATE_RESET:
-	case FLOW_STATE_ICMPERROR:
-		f->expire_time = ts;
-		f->expire_list = &expired;
-		expired.push_front(f);
-		return expired.begin();
-	}
+ExpireList::iterator FixedExpiryManager::addNewFlow(Flow *f) {
+        f->expire_list = this->stillactive;
+        this->stillactive->push_front(f);
+        return this->stillactive->begin();
+}
 
-	f->expire_time = ts + fixed_thresh;
-	f->expire_list = &expiry;
-	expiry.push_front(f);
-	return expiry.begin();
+ExpireList::iterator FixedExpiryManager::updateExpiryTimeout(Flow *f,
+                double ts) {
+
+        if (f->flow_state == FLOW_STATE_RESET ||
+                        f->flow_state == FLOW_STATE_ICMPERROR) {
+                f->expire_time = ts;
+                f->expire_list = this->expired;
+                this->expired->push_front(f);
+                return this->expired->begin();
+        }
+
+        f->expire_time = ts + this->timeout_thresh;
+        f->expire_list = this->stillactive;
+        this->stillactive->push_front(f);
+        return this->stillactive->begin();
+}
+
+Flow *FixedExpiryManager::expireNextFlow(double ts, bool force) {
+
+        Flow *exp_flow;
+        exp_flow = getNextExpiredFromList(this->stillactive, ts, force);
+        if (exp_flow)
+                return exp_flow;
+        return getNextExpiredFromList(this->expired, ts, force);
 
 }
 
-Flow *fixed_expire_next(double ts, bool force) {
-	Flow *exp_flow;
-
-	exp_flow = get_next_expired(&expiry, ts, force);
-	if (exp_flow)
-		return exp_flow;
-	
-	return get_next_expired(&expired, ts, force);
-}
-
-void fixed_set_threshold(double thresh) {
+void FixedExpiryManager::setTimeoutThreshold(double thresh) {
 	if (thresh < 0)
 		return;
-	fixed_thresh = thresh;
+	this->timeout_thresh = thresh;
 }
 
-static struct lfm_plugin_t fixed = {
-	LFM_PLUGIN_FIXED_INACTIVE,
-	fixed_add_new_flow,
-	fixed_update_expiry,
-	fixed_expire_next,
-	fixed_set_threshold,
-	NULL,
-};
-
-lfm_plugin_t *load_fixed_inactive() {
-	return &fixed;
-}

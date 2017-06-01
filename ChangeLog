@@ -1,3 +1,20 @@
+Version 3.0.0
+-------------
+ * MAJOR API CHANGE -- the various lfm_* functions have been replaced with a
+   FlowManager class where each former lfm_* function is implemented as a
+   public method. This means you can have multiple flow maps within a single
+   application, e.g. one per thread in a parallel libtrace application. The
+   old API has been removed so there is no backwards compatibility for
+   programs written using libflowmanager 2; however, most existing
+   libflowmanager code should be relatively easy to convert to the new API.
+ * Merged the functionality of the former lfm_check_tcp_flags() and
+   lfm_update_flow_expiry_timeout() functions into a single method
+   ( FlowManager::updateFlowExpiry() )
+ * Added a no-op function called lfm_version_three() -- this function should
+   be used when using AC_CHECK_LIB in autoconf to detect the presence of
+   libflowmanager 3 on a system.
+ * Updated examples to use new API.
+
 Version 2.0.5
 -------------
  * Switched from GPLv2 to LGPL license.
