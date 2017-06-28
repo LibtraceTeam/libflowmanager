@@ -50,6 +50,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <libtrace.h>
+#include <stdint.h>
 
 #include "tcp_reorder.h"
 
