@@ -1,4 +1,4 @@
-PACKAGE (3.0.0-2) unstable; urgency=low
+libflowmanager (3.0.0-2) unstable; urgency=low
 
   * Repackage for release on our bintray (no code changes)
 
