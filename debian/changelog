@@ -1,0 +1,5 @@
+libflowmanager (3.0.0-2) unstable; urgency=low
+
+  * Repackage for release on our bintray (no code changes)
+
+ -- Shane Alcock <shane.alcock@waikato.ac.nz>  Fri, 29 Mar 2019 16:45:55 +1300
