@@ -7,8 +7,8 @@ SOURCENAME=`echo ${GITHUB_REF##*/} | cut -d '-' -f 1`
 
 ./bootstrap.sh && ./configure && make dist
 cp libflowmanager-*.tar.gz ~/rpmbuild/SOURCES/${SOURCENAME}.tar.gz
-cp rpm/libflowmanager4.spec ~/rpmbuild/SPECS/
+cp rpm/libflowmanager.spec ~/rpmbuild/SPECS/
 
-cd ~/rpmbuild && rpmbuild -bb --define "debug_package %{nil}" SPECS/libflowmanager4.spec
+cd ~/rpmbuild && rpmbuild -bb --define "debug_package %{nil}" SPECS/libflowmanager.spec
 
 
