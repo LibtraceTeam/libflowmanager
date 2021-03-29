@@ -1,6 +1,6 @@
 Name:           libflowmanager
 Version:        3.0.0
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        C/C++ Library for performing flow-based network traffic analysis
 
 License:        LGPLv3
@@ -59,5 +59,8 @@ find $RPM_BUILD_ROOT -name '*.la' -exec rm -f {} ';'
 %{_libdir}/libflowmanager.so
 
 %changelog
+* Mon Mar 29 2021 Shane Alcock <shane.alcock@waikato.ac.nz> - 3.0.0-3
+- Repackage to link against latest libtrace release
+
 * Thu Oct 29 2020 Shane Alcock <shane.alcock@waikato.ac.nz> - 3.0.0-1
 - First libflowmanager RPM package

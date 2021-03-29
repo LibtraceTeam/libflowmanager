@@ -1,3 +1,9 @@
+libflowmanager (3.0.0-3) unstable; urgency=low
+
+  * Repackage to be compatible with latest libtrace (no code changes)
+
+ -- Shane Alcock <shane.alcock@waikato.ac.nz>  Mon, 29 Mar 2021 13:23:18 +1300
+
 libflowmanager (3.0.0-2) unstable; urgency=low
 
   * Repackage for release on our bintray (no code changes)
