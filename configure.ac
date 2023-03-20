@@ -2,16 +2,18 @@
 
 AC_INIT([libflowmanager],[3.0.0],[contact@wand.net.nz],[libflowmanager])
 
+AC_USE_SYSTEM_EXTENSIONS
+AC_CONFIG_MACRO_DIR([m4])
 AC_CONFIG_SRCDIR([lib/libflowmanager.cc])
-AM_INIT_AUTOMAKE(libflowmanager, 3.0.0)
+AM_INIT_AUTOMAKE([subdir-objects])
 
+LT_INIT
 # Make sure we use the relatively silent automake output
 m4_ifdef([AM_SILENT_RULES],[AM_SILENT_RULES([yes])])
 
 AC_CONFIG_FILES([Makefile lib/Makefile example/Makefile])
 
-AC_GNU_SOURCE
-AM_CONFIG_HEADER([config.h])
+AC_CONFIG_HEADERS([config.h])
 
 AC_CHECK_LIB([trace], [trace_create_packet],,trace_found=0)
 
@@ -29,7 +31,6 @@ if test "$GCC" = "yes"; then
         CFLAGS="$CFLAGS -Wall -W"
 fi
 
-AC_PROG_LIBTOOL
 AC_PROG_GCC_TRADITIONAL
 
 AC_CHECK_SIZEOF([long int])
